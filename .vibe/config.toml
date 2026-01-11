@@ -1,0 +1,2 @@
+[core]
+skill_paths = ["~/code/claude-skills/skills/"]

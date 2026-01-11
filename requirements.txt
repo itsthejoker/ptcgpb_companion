@@ -1,6 +1,16 @@
-Flask
-Werkzeug
-pillow
-opencv-python
-pandas
-numpy
+# Card Counter PyQt6 Application Requirements
+
+# Core dependencies
+PyQt6==6.7.0
+opencv-python==4.9.0.80
+numpy==1.26.4
+pandas==2.2.1
+Pillow==10.3.0
+
+# Database
+sqlite3==3.45.0
+
+# Development dependencies
+black==24.3.0
+flake8==7.0.0
+isort==5.13.2
