@@ -56,8 +56,8 @@ done
 # If you have an application icon (e.g., resources/icons/app.ico or .png), uncomment and adjust:
 # PYI_OPTS+=( --icon resources/icons/app.ico )
 
-echo "Running PyInstaller via uvx..."
-uvx --from pyinstaller pyinstaller "${PYI_OPTS[@]}" "${ENTRYPOINT}"
+echo "Running PyInstaller via uv run..."
+uv run --with pyinstaller pyinstaller "${PYI_OPTS[@]}" "${ENTRYPOINT}"
 
 # Create versioned ZIP of the onedir distribution
 DIST_DIR="dist/${APP_NAME}"

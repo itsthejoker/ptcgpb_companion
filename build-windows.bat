@@ -8,10 +8,10 @@ REM - Requires: uv (https://docs.astral.sh/uv/) and PowerShell (for parsing and 
 REM Move to the directory of this script
 pushd "%~dp0"
 
-REM Check for uvx
-where uvx >nul 2>&1
+REM Check for uv
+where uv >nul 2>&1
 if errorlevel 1 (
-  echo Error: 'uv' / 'uvx' is not installed. Install from https://docs.astral.sh/uv/
+  echo Error: 'uv' is not installed. Install from https://docs.astral.sh/uv/
   popd
   exit /b 1
 )
@@ -57,8 +57,8 @@ for %%D in (%PYI_ADD_DATA%) do (
 REM If you have an application icon, uncomment and adjust:
 REM set "PYI_OPTS=%PYI_OPTS% --icon resources\icons\app.ico"
 
-echo Running PyInstaller via uvx...
-uvx --from pyinstaller pyinstaller %PYI_OPTS% "%ENTRYPOINT%"
+echo Running PyInstaller via uv run...
+uv run --with pyinstaller pyinstaller %PYI_OPTS% "%ENTRYPOINT%"
 if errorlevel 1 (
   echo PyInstaller failed.
   popd
