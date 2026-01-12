@@ -18,7 +18,7 @@ if errorlevel 1 (
 
 REM Extract name and version from pyproject.toml using PowerShell (simple regex; no external deps)
 for /f "usebackq tokens=*" %%A in (`powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$t = Get-Content -Raw 'pyproject.toml'; $name = [regex]::Match($t, '(?m)^\s*name\s*=\s*\"([^\"]+)\"'^).Groups[1].Value; $ver = [regex]::Match($t, '(?m)^\s*version\s*=\s*\"([^\"]+)\"'^).Groups[1].Value; Write-Output ^($name + '|' + $ver^)"`) do (
+  "$t = Get-Content -Raw 'pyproject.toml'; $name = [regex]::Match($t, '(?m)^^\s*name\s*=\s*\x22([^\x22]+)\x22'^).Groups[1].Value; $ver = [regex]::Match($t, '(?m)^^\s*version\s*=\s*\x22([^\x22]+)\x22'^).Groups[1].Value; Write-Output ^($name + '|' + $ver^)"`) do (
   set "PYPROJECT=%%A"
 )
 
