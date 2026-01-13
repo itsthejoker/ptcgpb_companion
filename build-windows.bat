@@ -38,7 +38,7 @@ if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 
 REM Common PyInstaller options (Windows)
-set "PYI_OPTS=--noconfirm --clean --name %APP_NAME% --windowed"
+set "PYI_OPTS=--noconfirm --clean --name %APP_NAME% --windowed --icon=app\ptcgpb-companion-icon.ico"
 
 REM Data assets to include (src;dest within bundle on Windows)
 REM Example (uncomment and adjust as needed):

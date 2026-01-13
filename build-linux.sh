@@ -40,6 +40,7 @@ PYI_OPTS=(
   --clean
   --name "${APP_NAME}"
   --windowed
+  --icon=app\ptcgpb-companion-icon.ico
 )
 
 # Data assets to include (src:dest within bundle)

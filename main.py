@@ -10,7 +10,7 @@ import sys
 import os
 import logging
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
+from PyQt6 import QtGui
 
 # Add the app directory to Python path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -67,9 +67,10 @@ def main():
     app.setApplicationName("PTCGP Card Tracker")
     app.setOrganizationName("CardCounter")
     app.setOrganizationDomain("cardcounter.local")
+    app.setWindowIcon(QtGui.QIcon('app/ptcgpb-companion-icon.ico'))
 
     # Set application style
-    # app.setStyle('Fusion')
+    app.setStyle('Fusion')
 
     # Create and show main window
     try:
