@@ -6,35 +6,54 @@ This module provides the primary user interface for the application.
 """
 
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, QLabel, 
-    QPushButton, QTabWidget, QStatusBar, QToolBar, QMenuBar, QMenu,
-    QTableView, QComboBox, QLineEdit, QHeaderView, QAbstractItemView, QDialog,
-    QListWidget, QTextEdit, QMessageBox, QProgressBar
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGridLayout,
+    QLabel,
+    QPushButton,
+    QTabWidget,
+    QStatusBar,
+    QTableView,
+    QComboBox,
+    QLineEdit,
+    QHeaderView,
+    QAbstractItemView,
+    QDialog,
+    QListWidget,
+    QTextEdit,
+    QMessageBox,
+    QProgressBar,
 )
 from PyQt6.QtCore import Qt, QSize, QTimer
-from PyQt6.QtGui import QAction, QIcon
+from PyQt6.QtGui import QAction
 import os
 import logging
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Import models
 from app.models import CardModel, ProcessingTaskModel
-
-# Import names for mapping
 from app.names import cards as CARD_NAMES, sets as SET_NAMES, rarity as RARITY_MAP
 
-# Import dialogs
 from app.dialogs import (
-    CSVImportDialog, ScreenshotProcessingDialog, AboutDialog,
-    CardImageDialog, AccountCardListDialog
+    CSVImportDialog,
+    ScreenshotProcessingDialog,
+    AboutDialog,
+    CardImageDialog,
+    AccountCardListDialog,
 )
 
-# Import workers
-from app.workers import CSVImportWorker, ScreenshotProcessingWorker, CardDataLoadWorker, CardArtDownloadWorker
+from app.workers import (
+    CSVImportWorker,
+    ScreenshotProcessingWorker,
+    CardDataLoadWorker,
+    CardArtDownloadWorker,
+)
 from PyQt6.QtCore import QThreadPool
-from app.utils import PortableSettings
+from app.utils import PortableSettings, get_portable_path
+
 
 class MainWindow(QMainWindow):
     """
@@ -78,12 +97,16 @@ class MainWindow(QMainWindow):
         """Check for card art directory and start background download if missing"""
         try:
             from app.utils import get_portable_path
-            template_dir = get_portable_path('resources', 'card_imgs')
+
+            template_dir = get_portable_path("resources", "card_imgs")
             if not os.path.isdir(template_dir):
-                self._update_status_message("Card art not found. Downloading templates in background…")
+                self._update_status_message(
+                    "Card art not found. Downloading templates in background…"
+                )
 
                 # Create a task entry so it appears in Processing tab & counter
                 import uuid
+
                 task_id = str(uuid.uuid4())
                 self._add_processing_task(task_id, "Card Art Download")
 
@@ -92,11 +115,21 @@ class MainWindow(QMainWindow):
                 worker.task_id = task_id
 
                 # Connect signals with task context
-                worker.signals.progress.connect(lambda c, t, tid=task_id: self._on_art_download_progress(c, t, tid))
-                worker.signals.status.connect(lambda s, tid=task_id: self._on_art_download_status(s, tid))
-                worker.signals.result.connect(lambda r, tid=task_id: self._on_art_download_result(r, tid))
-                worker.signals.error.connect(lambda e, tid=task_id: self._on_art_download_error(e, tid))
-                worker.signals.finished.connect(lambda w=worker, tid=task_id: self._on_art_download_finished(w, tid))
+                worker.signals.progress.connect(
+                    lambda c, t, tid=task_id: self._on_art_download_progress(c, t, tid)
+                )
+                worker.signals.status.connect(
+                    lambda s, tid=task_id: self._on_art_download_status(s, tid)
+                )
+                worker.signals.result.connect(
+                    lambda r, tid=task_id: self._on_art_download_result(r, tid)
+                )
+                worker.signals.error.connect(
+                    lambda e, tid=task_id: self._on_art_download_error(e, tid)
+                )
+                worker.signals.finished.connect(
+                    lambda w=worker, tid=task_id: self._on_art_download_finished(w, tid)
+                )
 
                 # Track worker and start
                 self.active_workers.append(worker)
@@ -113,19 +146,23 @@ class MainWindow(QMainWindow):
         """Initialize database connection"""
         try:
             from app.database import Database
+
             self.db = Database()
             logger.info("Database initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
             # Show error message to user
             from app.utils import show_error_message
+
             show_error_message("Database Error", f"Failed to initialize database: {e}")
 
     def _init_thread_pool(self):
         """Initialize thread pool for background processing"""
         self.thread_pool = QThreadPool()
         self.thread_pool.setMaxThreadCount(4)  # Limit to 4 concurrent workers
-        logger.info(f"Thread pool initialized with max {self.thread_pool.maxThreadCount()} threads")
+        logger.info(
+            f"Thread pool initialized with max {self.thread_pool.maxThreadCount()} threads"
+        )
 
         # Store active workers for cancellation
         self.active_workers = []
@@ -257,7 +294,7 @@ class MainWindow(QMainWindow):
     def _update_dashboard_statistics(self):
         """Update dashboard statistics from database"""
         try:
-            if hasattr(self, 'db') and self.db:
+            if hasattr(self, "db") and self.db:
                 # Get statistics from database
                 total_cards = self.db.get_total_cards_count()
                 unique_cards = self.db.get_unique_cards_count()
@@ -270,7 +307,9 @@ class MainWindow(QMainWindow):
                 self.total_packs_label.setText(f"Total Packs: {total_packs}")
 
                 if last_processed:
-                    self.last_processed_label.setText(f"Last Processed: {last_processed}")
+                    self.last_processed_label.setText(
+                        f"Last Processed: {last_processed}"
+                    )
                 else:
                     self.last_processed_label.setText("Last Processed: Never")
 
@@ -288,25 +327,35 @@ class MainWindow(QMainWindow):
     def _update_recent_activity(self):
         """Update recent activity list"""
         try:
-            if hasattr(self, 'db') and self.db:
+            if hasattr(self, "db") and self.db:
                 # Clear existing items
                 self.recent_activity_list.clear()
 
                 # 1. Add active tasks first
-                active_tasks = [t for t in self.processing_tasks if t['status'] in ['Running', 'Queued']]
+                active_tasks = [
+                    t
+                    for t in self.processing_tasks
+                    if t["status"] in ["Running", "Queued"]
+                ]
                 for task in active_tasks:
-                    progress_text = f" ({task['progress']}%)" if task['status'] == 'Running' else ""
-                    item_text = f"[{task['status']}] {task['description']}{progress_text}"
+                    progress_text = (
+                        f" ({task['progress']}%)" if task["status"] == "Running" else ""
+                    )
+                    item_text = (
+                        f"[{task['status']}] {task['description']}{progress_text}"
+                    )
                     item = self.recent_activity_list.addItem(item_text)
                     # Color active tasks
-                    last_item = self.recent_activity_list.item(self.recent_activity_list.count() - 1)
-                    if task['status'] == 'Running':
+                    last_item = self.recent_activity_list.item(
+                        self.recent_activity_list.count() - 1
+                    )
+                    if task["status"] == "Running":
                         last_item.setForeground(Qt.GlobalColor.blue)
                     else:
                         last_item.setForeground(Qt.GlobalColor.darkYellow)
 
                 # 2. Add session status messages (newest first)
-                session_msgs = list(getattr(self, 'recent_activity_messages', []))
+                session_msgs = list(getattr(self, "recent_activity_messages", []))
                 if session_msgs:
                     # Show newest first
                     for entry in reversed(session_msgs):
@@ -315,12 +364,16 @@ class MainWindow(QMainWindow):
 
                 # 3. Get recent activity from database (processed screenshots)
                 db_activities = []
-                if getattr(self, 'recent_activity_limit', 0) > 0:
-                    db_activities = self.db.get_recent_activity(limit=self.recent_activity_limit)
+                if getattr(self, "recent_activity_limit", 0) > 0:
+                    db_activities = self.db.get_recent_activity(
+                        limit=self.recent_activity_limit
+                    )
 
                 if db_activities:
                     for activity in db_activities:
-                        item_text = f"{activity['timestamp']} - {activity['description']}"
+                        item_text = (
+                            f"{activity['timestamp']} - {activity['description']}"
+                        )
                         self.recent_activity_list.addItem(item_text)
 
                 if not active_tasks and not session_msgs and not db_activities:
@@ -369,8 +422,12 @@ class MainWindow(QMainWindow):
 
         # Create table view for cards
         self.cards_table = QTableView()
-        self.cards_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.cards_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.cards_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.cards_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
         self.cards_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.cards_table.setSortingEnabled(True)
 
@@ -393,22 +450,24 @@ class MainWindow(QMainWindow):
 
     def _on_tab_changed(self, index):
         """Handle tab changes to refresh cards after rendering"""
-        if index == getattr(self, 'cards_tab_index', -1):
+        if index == getattr(self, "cards_tab_index", -1):
             # Only auto-load if there is no data yet
             try:
                 has_data = False
-                if hasattr(self, 'card_model') and hasattr(self.card_model, '_data'):
+                if hasattr(self, "card_model") and hasattr(self.card_model, "_data"):
                     has_data = bool(self.card_model._data)
-                elif hasattr(self, 'card_model') and callable(getattr(self.card_model, 'rowCount', None)):
+                elif hasattr(self, "card_model") and callable(
+                    getattr(self.card_model, "rowCount", None)
+                ):
                     has_data = self.card_model.rowCount() > 0
                 else:
-                    has_data = bool(getattr(self, 'all_card_data', []))
+                    has_data = bool(getattr(self, "all_card_data", []))
 
                 if not has_data:
                     self._refresh_cards_tab()
             except Exception:
                 # If detection fails, fall back to performing the initial load once
-                if not getattr(self, '_initial_cards_load_attempted', False):
+                if not getattr(self, "_initial_cards_load_attempted", False):
                     self._initial_cards_load_attempted = True
                     self._refresh_cards_tab()
 
@@ -421,7 +480,9 @@ class MainWindow(QMainWindow):
         self.task_table = QTableView()
         self.task_model = ProcessingTaskModel()
         self.task_table.setModel(self.task_model)
-        self.task_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.task_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
         self.task_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.task_table.setSortingEnabled(True)
         # Show an empty-state message when no rows are present
@@ -474,13 +535,15 @@ class MainWindow(QMainWindow):
 
             if selected_indices:
                 # Get the task ID from the first selected row
-                task_id = self.task_model._data[selected_indices[0].row()]['task_id']
+                task_id = self.task_model._data[selected_indices[0].row()]["task_id"]
 
                 # Find and cancel the worker
                 for worker in self.active_workers:
-                    if hasattr(worker, 'task_id') and worker.task_id == task_id:
+                    if hasattr(worker, "task_id") and worker.task_id == task_id:
                         worker.cancel()
-                        self._update_task_status(task_id, "Cancelled", "Cancelled by user")
+                        self._update_task_status(
+                            task_id, "Cancelled", "Cancelled by user"
+                        )
                         self._update_status_message(f"Task {task_id} cancelled")
                         break
             else:
@@ -496,7 +559,7 @@ class MainWindow(QMainWindow):
             # Filter out completed tasks
             active_tasks = []
             for task in self.processing_tasks:
-                if task['status'] not in ['Completed', 'Failed', 'Cancelled']:
+                if task["status"] not in ["Completed", "Failed", "Cancelled"]:
                     active_tasks.append(task)
 
             # Update model
@@ -514,13 +577,13 @@ class MainWindow(QMainWindow):
     def _add_processing_task(self, task_id: str, description: str):
         """Add a new processing task to the tracking system"""
         task_data = {
-            'task_id': task_id,
-            'status': 'Queued',
-            'progress': 0,
-            'description': description,
-            'start_time': datetime.now().isoformat(),
-            'end_time': None,
-            'error': None
+            "task_id": task_id,
+            "status": "Queued",
+            "progress": 0,
+            "description": description,
+            "start_time": datetime.now().isoformat(),
+            "end_time": None,
+            "error": None,
         }
 
         # Add to task list
@@ -535,7 +598,6 @@ class MainWindow(QMainWindow):
         # Update processing header/indicator
         self._refresh_processing_status()
 
-
     def _setup_processing_status(self):
         """Set up processing status tracking"""
         # This will be expanded in future phases
@@ -548,7 +610,7 @@ class MainWindow(QMainWindow):
         """Clear the recent activity list and reset session count"""
         self.recent_activity_limit = 0
         # Clear session messages as part of the clear action
-        if hasattr(self, 'recent_activity_messages'):
+        if hasattr(self, "recent_activity_messages"):
             self.recent_activity_messages.clear()
         self._update_recent_activity()
         self._update_status_message("Recent activity cleared")
@@ -587,8 +649,12 @@ class MainWindow(QMainWindow):
         horizontal_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
 
         # Rarity and count columns size to their content
-        horizontal_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        horizontal_header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        horizontal_header.setSectionResizeMode(
+            3, QHeaderView.ResizeMode.ResizeToContents
+        )
+        horizontal_header.setSectionResizeMode(
+            4, QHeaderView.ResizeMode.ResizeToContents
+        )
 
         # Ensure the art column remains just wider than the icon size
         icon_width = self.cards_table.iconSize().width()
@@ -601,14 +667,18 @@ class MainWindow(QMainWindow):
         self._update_status_message("loading updated data...")
 
         # Show indeterminate progress and disable controls immediately
-        if hasattr(self, 'status_progress'):
+        if hasattr(self, "status_progress"):
             self.status_progress.setVisible(True)
             self.status_progress.setRange(0, 0)  # indeterminate
 
         # Disable controls to avoid filter churn during load
-        for w in [getattr(self, 'set_filter', None), getattr(self, 'rarity_filter', None),
-                  getattr(self, 'account_filter', None), getattr(self, 'search_box', None),
-                  getattr(self, 'refresh_cards_btn', None)]:
+        for w in [
+            getattr(self, "set_filter", None),
+            getattr(self, "rarity_filter", None),
+            getattr(self, "account_filter", None),
+            getattr(self, "search_box", None),
+            getattr(self, "refresh_cards_btn", None),
+        ]:
             if w is not None:
                 w.setEnabled(False)
 
@@ -619,29 +689,45 @@ class MainWindow(QMainWindow):
         def start_worker():
             try:
                 # Cancel any in-flight worker for card data
-                prev = getattr(self, '_current_card_load_worker', None)
-                if prev and hasattr(prev, 'cancel'):
+                prev = getattr(self, "_current_card_load_worker", None)
+                if prev and hasattr(prev, "cancel"):
                     try:
                         prev.cancel()
                     except Exception:
                         pass
 
                 # Create worker
-                worker = CardDataLoadWorker(db_path=self.db.db_path if hasattr(self, 'db') else None)
+                worker = CardDataLoadWorker(
+                    db_path=self.db.db_path if hasattr(self, "db") else None
+                )
                 self._current_card_load_worker = worker
 
                 # Connect signals
                 worker.signals.status.connect(self._on_cards_load_status)
-                worker.signals.result.connect(lambda data, gen=current_gen, w=worker: self._on_cards_load_result(data, gen, w))
-                worker.signals.error.connect(lambda err, gen=current_gen, w=worker: self._on_cards_load_error(err, gen, w))
-                worker.signals.finished.connect(lambda gen=current_gen, w=worker: self._on_cards_load_finished(gen, w))
+                worker.signals.result.connect(
+                    lambda data, gen=current_gen, w=worker: self._on_cards_load_result(
+                        data, gen, w
+                    )
+                )
+                worker.signals.error.connect(
+                    lambda err, gen=current_gen, w=worker: self._on_cards_load_error(
+                        err, gen, w
+                    )
+                )
+                worker.signals.finished.connect(
+                    lambda gen=current_gen, w=worker: self._on_cards_load_finished(
+                        gen, w
+                    )
+                )
 
                 # Track and start
                 self.active_workers.append(worker)
                 self.thread_pool.start(worker)
 
             except Exception as e:
-                self._on_cards_load_error(f"Error starting card data load: {e}", current_gen, None)
+                self._on_cards_load_error(
+                    f"Error starting card data load: {e}", current_gen, None
+                )
 
         # Defer to allow the tab to render first
         QTimer.singleShot(0, start_worker)
@@ -649,10 +735,10 @@ class MainWindow(QMainWindow):
     def _load_card_data(self):
         """Load card data from database"""
         try:
-            if hasattr(self, 'db') and self.db:
+            if hasattr(self, "db") and self.db:
                 # Get all cards with counts and account information
                 cards = self.db.get_all_cards_with_counts()
-                
+
                 # Process data for the model
                 card_data = []
                 for card in cards:
@@ -661,28 +747,28 @@ class MainWindow(QMainWindow):
                     display_name, display_rarity = self._get_display_name_and_rarity(
                         card[1], raw_name, card[3]
                     )
-                    
+
                     card_info = {
-                        'card_code': card[0],
-                        'card_name': display_name,
-                        'set_name': SET_NAMES.get(card[2], card[2]),
-                        'rarity': display_rarity,
-                        'count': card[4],
-                        'image_path': card[5]
+                        "card_code": card[0],
+                        "card_name": display_name,
+                        "set_name": SET_NAMES.get(card[2], card[2]),
+                        "rarity": display_rarity,
+                        "count": card[4],
+                        "image_path": card[5],
                     }
                     card_data.append(card_info)
-                
+
                 # Store full data copy for filtering
                 self.all_card_data = card_data
-                
+
                 # Update filter options (this will not trigger _apply_filters due to signal blocking)
                 self._update_filter_options(card_data)
-                
+
                 # Apply current filters (this will also update the model and status bar)
                 self._apply_filters()
             else:
                 self._update_status_message("Database not available")
-                
+
         except Exception as e:
             print(f"Error loading card data: {e}")
             self._update_status_message(f"Error loading card data: {e}")
@@ -693,7 +779,7 @@ class MainWindow(QMainWindow):
 
     def _on_cards_load_result(self, card_data: list, gen: int, worker=None):
         """Handle async card load result with generation guard"""
-        if gen != getattr(self, '_cards_load_generation', 0):
+        if gen != getattr(self, "_cards_load_generation", 0):
             return  # stale result
 
         # Store and apply filters
@@ -703,39 +789,47 @@ class MainWindow(QMainWindow):
 
     def _on_cards_load_error(self, error: str, gen: int, worker=None):
         """Handle async card load error"""
-        if gen != getattr(self, '_cards_load_generation', 0):
+        if gen != getattr(self, "_cards_load_generation", 0):
             return
         self._update_status_message(error)
         # Re-enable UI
-        if hasattr(self, 'status_progress'):
+        if hasattr(self, "status_progress"):
             self.status_progress.setVisible(False)
             self.status_progress.setRange(0, 100)
-        for w in [getattr(self, 'set_filter', None), getattr(self, 'rarity_filter', None),
-                  getattr(self, 'account_filter', None), getattr(self, 'search_box', None),
-                  getattr(self, 'refresh_cards_btn', None)]:
+        for w in [
+            getattr(self, "set_filter", None),
+            getattr(self, "rarity_filter", None),
+            getattr(self, "account_filter", None),
+            getattr(self, "search_box", None),
+            getattr(self, "refresh_cards_btn", None),
+        ]:
             if w is not None:
                 w.setEnabled(True)
 
     def _on_cards_load_finished(self, gen: int, worker=None):
         """Cleanup after async card load completes"""
-        if worker and worker in getattr(self, 'active_workers', []):
+        if worker and worker in getattr(self, "active_workers", []):
             self.active_workers.remove(worker)
-        if getattr(self, '_current_card_load_worker', None) is worker:
+        if getattr(self, "_current_card_load_worker", None) is worker:
             self._current_card_load_worker = None
 
-        if gen != getattr(self, '_cards_load_generation', 0):
+        if gen != getattr(self, "_cards_load_generation", 0):
             return  # stale completion
 
         # Hide progress and re-enable controls
-        if hasattr(self, 'status_progress'):
+        if hasattr(self, "status_progress"):
             self.status_progress.setVisible(False)
             self.status_progress.setRange(0, 100)
-        for w in [getattr(self, 'set_filter', None), getattr(self, 'rarity_filter', None),
-                  getattr(self, 'account_filter', None), getattr(self, 'search_box', None),
-                  getattr(self, 'refresh_cards_btn', None)]:
+        for w in [
+            getattr(self, "set_filter", None),
+            getattr(self, "rarity_filter", None),
+            getattr(self, "account_filter", None),
+            getattr(self, "search_box", None),
+            getattr(self, "refresh_cards_btn", None),
+        ]:
             if w is not None:
                 w.setEnabled(True)
-    
+
     def _update_filter_options(self, card_data):
         """Update filter options based on available data"""
         try:
@@ -746,39 +840,39 @@ class MainWindow(QMainWindow):
             # Update set filter
             sets = set()
             for card in card_data:
-                if card.get('set_name'):
-                    sets.add(card['set_name'])
-            
+                if card.get("set_name"):
+                    sets.add(card["set_name"])
+
             current_set = self.set_filter.currentText()
             self.set_filter.clear()
             self.set_filter.addItem("All Sets")
             for set_name in sorted(sets):
                 self.set_filter.addItem(set_name)
-            
+
             # Restore previous selection if possible
             if current_set != "All Sets" and current_set in sets:
                 index = self.set_filter.findText(current_set)
                 if index >= 0:
                     self.set_filter.setCurrentIndex(index)
-            
+
             # Update rarity filter
             rarities = set()
             for card in card_data:
-                if card.get('rarity'):
-                    rarities.add(card['rarity'])
-            
+                if card.get("rarity"):
+                    rarities.add(card["rarity"])
+
             current_rarity = self.rarity_filter.currentText()
             self.rarity_filter.clear()
             self.rarity_filter.addItem("All Rarities")
             for rarity in sorted(rarities):
                 self.rarity_filter.addItem(rarity)
-            
+
             # Restore previous selection if possible
             if current_rarity != "All Rarities" and current_rarity in rarities:
                 index = self.rarity_filter.findText(current_rarity)
                 if index >= 0:
                     self.rarity_filter.setCurrentIndex(index)
-            
+
         except Exception as e:
             print(f"Error updating filter options: {e}")
         finally:
@@ -793,117 +887,136 @@ class MainWindow(QMainWindow):
             set_filter = self.set_filter.currentText()
             rarity_filter = self.rarity_filter.currentText()
             search_text = self.search_box.text().strip().lower()
-            
+
             # Get all cards
-            all_cards = getattr(self, 'all_card_data', [])
-            
+            all_cards = getattr(self, "all_card_data", [])
+
             # Apply filters
             filtered_cards = []
             for card in all_cards:
                 # Apply set filter
-                if set_filter != "All Sets" and card.get('set_name') != set_filter:
+                if set_filter != "All Sets" and card.get("set_name") != set_filter:
                     continue
-                
+
                 # Apply rarity filter
-                if rarity_filter != "All Rarities" and card.get('rarity') != rarity_filter:
+                if (
+                    rarity_filter != "All Rarities"
+                    and card.get("rarity") != rarity_filter
+                ):
                     continue
-                
+
                 # Apply search filter
                 if search_text:
-                    card_name = card.get('card_name', '').lower()
-                    set_name = card.get('set_name', '').lower()
-                    rarity = card.get('rarity', '').lower()
-                    
-                    if (search_text not in card_name and 
-                        search_text not in set_name and 
-                        search_text not in rarity):
+                    card_name = card.get("card_name", "").lower()
+                    set_name = card.get("set_name", "").lower()
+                    rarity = card.get("rarity", "").lower()
+
+                    if (
+                        search_text not in card_name
+                        and search_text not in set_name
+                        and search_text not in rarity
+                    ):
                         continue
-                
+
                 filtered_cards.append(card)
-            
+
             # Update model with filtered data
             self.card_model.update_data(filtered_cards)
-            self._update_status_message(f"Showing {len(filtered_cards)} of {len(all_cards)} cards")
-            
+            self._update_status_message(
+                f"Showing {len(filtered_cards)} of {len(all_cards)} cards"
+            )
+
         except Exception as e:
             print(f"Error applying filters: {e}")
             self._update_status_message(f"Error applying filters: {e}")
-    
+
     def _on_card_table_clicked(self, index):
         """Handle click on card table"""
         if index.column() == 0:  # Art column
             card_data = self.card_model._data[index.row()]
-            image_path = card_data.get('image_path')
-            card_code = card_data.get('card_code')
-            card_name = card_data.get('card_name', 'Card Art')
+            image_path = card_data.get("image_path")
+            card_code = card_data.get("card_code")
+            card_name = card_data.get("card_name", "Card Art")
 
             # Resolve the image path using the same logic as the model
             resolved_path = self.card_model._find_card_image(card_code, image_path)
             if resolved_path:
                 self._show_full_card_image(
-                    resolved_path,
-                    card_name + " (" + card_data.get("set_name") + ")"
+                    resolved_path, card_name + " (" + card_data.get("set_name") + ")"
                 )
         else:
             # Handle other columns
             card_data = self.card_model._data[index.row()]
-            card_code = card_data.get('card_code')
-            card_name = card_data.get('card_name', 'Unknown')
-            
+            card_code = card_data.get("card_code")
+            card_name = card_data.get("card_name", "Unknown")
+
             # Show account distribution dialog
             self._show_account_distribution(card_code, card_name)
 
     def _show_account_distribution(self, card_code: str, card_name: str):
         """Show dialog with account distribution for a card"""
         try:
-            if hasattr(self, 'db') and self.db:
+            if hasattr(self, "db") and self.db:
                 # Get account distribution from database
                 account_data = self.db.get_accounts_for_card(card_code)
-                
+
                 if account_data:
-                    dialog = AccountCardListDialog(card_name, card_code, account_data, self)
+                    dialog = AccountCardListDialog(
+                        card_name, card_code, account_data, self
+                    )
                     dialog.show()
                 else:
-                    QMessageBox.information(self, "No Data", f"No account distribution found for {card_name}")
+                    QMessageBox.information(
+                        self,
+                        "No Data",
+                        f"No account distribution found for {card_name}",
+                    )
             else:
                 QMessageBox.warning(self, "Error", "Database not available")
-                
+
         except Exception as e:
             logger.error(f"Error showing account distribution: {e}")
-            QMessageBox.warning(self, "Error", f"Could not show account distribution: {e}")
+            QMessageBox.warning(
+                self, "Error", f"Could not show account distribution: {e}"
+            )
 
     def _on_search_table_clicked(self, index):
         """Handle click on search results table"""
         if index.column() == 0:  # Art column
             result_data = self.search_results_model._data[index.row()]
-            image_path = result_data.get('image_path')
-            card_name = result_data.get('card_name', 'Card Art')
-            
+            image_path = result_data.get("image_path")
+            card_name = result_data.get("card_name", "Card Art")
+
             # Resolve image path
             if image_path:
                 check_paths = [
                     image_path,
-                    os.path.join("resources", "card_imgs", image_path),
-                    os.path.join("static", "card_imgs", image_path),
+                    get_portable_path("resources", "card_imgs", image_path),
+                    get_portable_path("static", "card_imgs", image_path),
                 ]
-                
-                if "/" in image_path:
-                    parts = image_path.split("/")
+
+                normalized_path = image_path.replace("\\", "/")
+                if "/" in normalized_path:
+                    parts = normalized_path.split("/")
                     filename = parts[-1]
                     set_code = parts[0]
-                    check_paths.append(os.path.join("resources", "card_imgs", set_code, filename))
-                    check_paths.append(os.path.join("static", "card_imgs", set_code, filename))
-                
+                    check_paths.append(
+                        get_portable_path("resources", "card_imgs", set_code, filename)
+                    )
+                    check_paths.append(
+                        get_portable_path("static", "card_imgs", set_code, filename)
+                    )
+
                 resolved_path = None
                 for path in check_paths:
                     if os.path.exists(path):
                         resolved_path = path
                         break
-                
+
                 if resolved_path:
                     self._show_full_card_image(
                         resolved_path,
-                        card_name + " (" + result_data.get("set_name") + ")"
+                        card_name + " (" + result_data.get("set_name") + ")",
                     )
 
     def _show_full_card_image(self, image_path: str, card_name: str):
@@ -918,110 +1031,124 @@ class MainWindow(QMainWindow):
     def _setup_status_bar(self):
         """Set up the status bar with comprehensive indicators"""
         status_bar = QStatusBar()
-        
+
         # Main status label
         self.main_status = QLabel("Ready")
         status_bar.addWidget(self.main_status, 1)
-        
+
         # Progress bar
         self.status_progress = QProgressBar()
         self.status_progress.setVisible(False)
         self.status_progress.setMaximumWidth(200)
         status_bar.addPermanentWidget(self.status_progress)
-        
+
         # Database status
         self.db_status = QLabel()
         self._update_db_status()
         status_bar.addPermanentWidget(self.db_status)
-        
+
         # Task count
         self.task_status = QLabel()
         self._update_task_status()  # Update task count indicator only
         status_bar.addPermanentWidget(self.task_status)
-        
+
         self.setStatusBar(status_bar)
 
     def _update_status_message(self, message: str):
         """Update the main status message and clear any temporary messages"""
-        if hasattr(self, 'main_status'):
+        if hasattr(self, "main_status"):
             self.statusBar().clearMessage()
             self.main_status.setText(message)
             logger.debug(f"Status updated: {message}")
 
         # Also push this status message to the Recent Activity session log
         try:
-            timestamp = datetime.now().isoformat(timespec='seconds')
-            if not hasattr(self, 'recent_activity_messages'):
+            timestamp = datetime.now().isoformat(timespec="seconds")
+            if not hasattr(self, "recent_activity_messages"):
                 self.recent_activity_messages = []
 
-            self.recent_activity_messages.append({
-                'timestamp': timestamp,
-                'description': message,
-            })
+            self.recent_activity_messages.append(
+                {
+                    "timestamp": timestamp,
+                    "description": message,
+                }
+            )
 
             # Cap session messages to the configured limit (default 100)
-            limit = getattr(self, 'recent_activity_limit', 100) or 100
+            limit = getattr(self, "recent_activity_limit", 100) or 100
             if len(self.recent_activity_messages) > limit:
                 self.recent_activity_messages = self.recent_activity_messages[-limit:]
 
             # Reflect immediately in the UI if the list exists
-            if hasattr(self, 'recent_activity_list') and self.recent_activity_list is not None:
+            if (
+                hasattr(self, "recent_activity_list")
+                and self.recent_activity_list is not None
+            ):
                 display_text = f"{timestamp} - {message}"
                 # Insert at the top for immediacy without re-querying the DB
                 self.recent_activity_list.insertItem(0, display_text)
         except Exception as e:
             # Never let activity logging break UI status updates
             logger.debug(f"Failed to add status to Recent Activity: {e}")
-    
+
     def _update_db_status(self):
         """Update database connection status"""
-        if hasattr(self, 'db') and self.db:
+        if hasattr(self, "db") and self.db:
             self.db_status.setText("DB: Connected")
             self.db_status.setStyleSheet("color: green;")
         else:
             self.db_status.setText("DB: Disconnected")
             self.db_status.setStyleSheet("color: red;")
-    
-    def _update_task_status(self, task_id: str = None, status: str = None, progress: int = None, error: str = None):
+
+    def _update_task_status(
+        self,
+        task_id: str = None,
+        status: str = None,
+        progress: int = None,
+        error: str = None,
+    ):
         """Update task status indicator and specific task status"""
         if task_id:
             # Update specific task status
             for task in self.processing_tasks:
-                if task['task_id'] == task_id:
+                if task["task_id"] == task_id:
                     if status:
-                        task['status'] = status
-                    
+                        task["status"] = status
+
                     if progress is not None:
-                        task['progress'] = progress
-                    
-                    if status == 'Completed':
-                        task['progress'] = 100
-                    
-                    if status in ['Completed', 'Failed', 'Cancelled']:
-                        task['end_time'] = datetime.now().isoformat()
-                    
+                        task["progress"] = progress
+
+                    if status == "Completed":
+                        task["progress"] = 100
+
+                    if status in ["Completed", "Failed", "Cancelled"]:
+                        task["end_time"] = datetime.now().isoformat()
+
                     if error:
-                        task['error'] = error
-                    
+                        task["error"] = error
+
                     # Update model
                     self.task_model.update_data(self.processing_tasks)
-                    
+
                     # Log status change if status provided
                     if status:
                         logger.info(f"Task {task_id} status changed to {status}")
-                    
+
                     break
-        
+
         # Update task count indicator
-        active_tasks = sum(1 for task in self.processing_tasks 
-                          if task['status'] in ['Queued', 'Running'])
-        
+        active_tasks = sum(
+            1
+            for task in self.processing_tasks
+            if task["status"] in ["Queued", "Running"]
+        )
+
         self.task_status.setText(f"Tasks: {active_tasks}")
         if active_tasks > 0:
             self.task_status.setStyleSheet("color: orange;")
         else:
             self.task_status.setStyleSheet("color: inherit;")
-        
+
         # Also refresh the processing tab header label
         self._refresh_processing_status()
 
@@ -1033,9 +1160,15 @@ class MainWindow(QMainWindow):
         completed tasks are still listed in the table.
         """
         try:
-            active_count = sum(1 for t in getattr(self, 'processing_tasks', [])
-                               if t.get('status') in ['Queued', 'Running'])
-            if hasattr(self, 'active_tasks_label') and self.active_tasks_label is not None:
+            active_count = sum(
+                1
+                for t in getattr(self, "processing_tasks", [])
+                if t.get("status") in ["Queued", "Running"]
+            )
+            if (
+                hasattr(self, "active_tasks_label")
+                and self.active_tasks_label is not None
+            ):
                 if active_count == 0:
                     self.active_tasks_label.setText("Active Tasks: none running")
                     self.active_tasks_label.setStyleSheet("color: gray;")
@@ -1045,262 +1178,298 @@ class MainWindow(QMainWindow):
         except Exception:
             # Never let UI hints break processing display
             pass
-    
+
     def _update_progress(self, current: int, total: int, message: str = ""):
         """Update progress indicators"""
         if total > 0:
             percentage = min(100, int((current / total) * 100))
-            
+
             # Update progress bar
             self.status_progress.setVisible(True)
             self.status_progress.setRange(0, total)
             self.status_progress.setValue(current)
-            
+
             # Update status message
             if message:
                 self._update_status_message(message)
             else:
-                self._update_status_message(f"Progress: {current}/{total} ({percentage}%)")
-        
+                self._update_status_message(
+                    f"Progress: {current}/{total} ({percentage}%)"
+                )
+
         # Update task status
         self._update_task_status()  # Update task count indicator only
-    
+
     def _clear_progress(self):
         """Clear progress indicators"""
         self.statusBar().clearMessage()
         self.status_progress.setVisible(False)
         self.status_progress.setValue(0)
-    
+
     def _on_import_csv(self):
         """Handle Import CSV action"""
         print("Import CSV action triggered")
-        
+
         try:
             # Get initial path from settings
             initial_path = self.settings.get_setting("csv_import_path", "")
-            
+
             # Create and show CSV import dialog
-            dialog = CSVImportDialog(self, initial_path=initial_path, settings=self.settings)
+            dialog = CSVImportDialog(
+                self, initial_path=initial_path, settings=self.settings
+            )
             dialog.csv_imported.connect(self._on_csv_imported)
-            
+
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self._update_status_message("CSV import completed")
             else:
                 self._update_status_message("CSV import cancelled")
-                
+
         except Exception as e:
             print(f"Error importing CSV: {e}")
             self._update_status_message(f"Error importing CSV: {e}")
-    
+
     def _on_csv_imported(self, file_path: str):
         """Handle successful CSV import - start background processing"""
         print(f"Starting background CSV import from: {file_path}")
         self._update_status_message(f"Starting background CSV import...")
-        
+
         try:
             # Generate task ID
             import uuid
+
             task_id = str(uuid.uuid4())
-            
+
             # Add task to tracking system
-            self._add_processing_task(task_id, f"CSV Import: {os.path.basename(file_path)}")
-            
+            self._add_processing_task(
+                task_id, f"CSV Import: {os.path.basename(file_path)}"
+            )
+
             # Create worker for CSV import
             worker = CSVImportWorker(
-                file_path=file_path,
-                task_id=task_id,
-                db_path=self.db.db_path
+                file_path=file_path, task_id=task_id, db_path=self.db.db_path
             )
-            
+
             # Connect signals with task_id and worker
-            worker.signals.progress.connect(lambda c, t, tid=task_id: self._on_csv_import_progress(c, t, tid))
+            worker.signals.progress.connect(
+                lambda c, t, tid=task_id: self._on_csv_import_progress(c, t, tid)
+            )
             worker.signals.status.connect(self._on_csv_import_status)
-            worker.signals.result.connect(lambda r, tid=task_id: self._on_csv_import_result(r, tid))
-            worker.signals.error.connect(lambda e, tid=task_id: self._on_csv_import_error(e, tid))
-            worker.signals.finished.connect(lambda w=worker: self._on_csv_import_finished(w))
-            
+            worker.signals.result.connect(
+                lambda r, tid=task_id: self._on_csv_import_result(r, tid)
+            )
+            worker.signals.error.connect(
+                lambda e, tid=task_id: self._on_csv_import_error(e, tid)
+            )
+            worker.signals.finished.connect(
+                lambda w=worker: self._on_csv_import_finished(w)
+            )
+
             # Store worker for cancellation
             self.active_workers.append(worker)
-            
+
             # Start worker
             self.thread_pool.start(worker)
-            
+
             # Update task status and dashboard
             self._update_task_status(task_id, "Running")
             self._update_dashboard_statistics()
-            
+
             self._update_status_message("CSV import started in background")
-            
+
         except Exception as e:
             print(f"Error starting CSV import worker: {e}")
             self._update_status_message(f"Error starting CSV import: {e}")
-    
+
     def _on_csv_import_progress(self, current: int, total: int, task_id: str = None):
         """Handle CSV import progress updates"""
         self._update_progress(current, total, f"CSV import: {current}/{total}")
-        
+
         # Update task progress if task_id provided
         if task_id:
             percentage = int((current / total) * 100) if total > 0 else 0
             self._update_task_status(task_id, progress=percentage)
-            
+
             # Refresh dashboard to show progress in recent activity
             self._update_dashboard_statistics()
-    
+
     def _on_csv_import_status(self, status: str):
         """Handle CSV import status updates"""
         print(f"CSV import status: {status}")
         self._update_status_message(status)
-    
+
     def _on_csv_import_result(self, result: dict, task_id: str = None):
         """Handle CSV import result"""
         print(f"CSV import result: {result}")
-        self._update_status_message(f"CSV import completed: {result.get('total_rows', 0)} packs imported")
-        
+        self._update_status_message(
+            f"CSV import completed: {result.get('total_rows', 0)} packs imported"
+        )
+
         # Increase activity limit to show new items
-        self.recent_activity_limit += result.get('total_rows', 0)
-        
+        self.recent_activity_limit += result.get("total_rows", 0)
+
         if task_id:
             self._update_task_status(task_id, "Completed")
-    
+
     def _on_csv_import_error(self, error: str, task_id: str = None):
         """Handle CSV import errors"""
         print(f"CSV import error: {error}")
         self._update_status_message(f"CSV import error: {error}")
-        
+
         if task_id:
             self._update_task_status(task_id, "Failed", error=error)
-    
+
     def _on_csv_import_finished(self, worker=None):
         """Handle CSV import completion"""
         print("CSV import finished")
         self._update_status_message("CSV import finished")
-        
+
         # Clean up worker
         if worker and worker in self.active_workers:
             self.active_workers.remove(worker)
         elif self.active_workers:
             self.active_workers.pop()
-        
+
         # Refresh dashboard statistics only; Cards tab refresh is manual after first load
         self._update_dashboard_statistics()
 
         # Clear progress indicators
         self._clear_progress()
-    
-    def _on_screenshot_processing_progress(self, current: int, total: int, task_id: str = None):
+
+    def _on_screenshot_processing_progress(
+        self, current: int, total: int, task_id: str = None
+    ):
         """Handle screenshot processing progress updates"""
-        self._update_progress(current, total, f"Screenshot processing: {current}/{total}")
-        
+        self._update_progress(
+            current, total, f"Screenshot processing: {current}/{total}"
+        )
+
         # Update task progress if task_id provided
         if task_id:
             percentage = int((current / total) * 100) if total > 0 else 0
             self._update_task_status(task_id, progress=percentage)
-            
+
             # Refresh dashboard to show progress in recent activity
             self._update_dashboard_statistics()
-    
+
     def _on_screenshot_processing_status(self, status: str):
         """Handle screenshot processing status updates"""
         print(f"Screenshot processing status: {status}")
         self._update_status_message(status)
-    
+
     def _on_screenshot_processing_result(self, result: dict, task_id: str = None):
         """Handle screenshot processing result"""
         print(f"Screenshot processing result: {result}")
-        self._update_status_message(f"Screenshot processing completed: {result.get('total_files', 0)} files processed")
-        
+        self._update_status_message(
+            f"Screenshot processing completed: {result.get('total_files', 0)} files processed"
+        )
+
         # Increase activity limit to show new items
-        self.recent_activity_limit += result.get('successful_files', 0)
-        
+        self.recent_activity_limit += result.get("successful_files", 0)
+
         if task_id:
             self._update_task_status(task_id, "Completed")
-    
+
     def _on_screenshot_processing_error(self, error: str, task_id: str = None):
         """Handle screenshot processing errors"""
         print(f"Screenshot processing error: {error}")
         self._update_status_message(f"Screenshot processing error: {error}")
-        
+
         if task_id:
             self._update_task_status(task_id, "Failed", error=error)
-    
+
     def _on_screenshot_processing_finished(self, worker=None):
         """Handle screenshot processing completion"""
         print("Screenshot processing finished")
         self._update_status_message("Screenshot processing finished")
-        
+
         # Clean up worker
         if worker and worker in self.active_workers:
             self.active_workers.remove(worker)
         elif self.active_workers:
             self.active_workers.pop()
-        
+
         # Refresh dashboard statistics only; Cards tab refresh is manual after first load
         self._update_dashboard_statistics()
 
         # Clear progress indicators
         self._clear_progress()
-    
+
     def _on_process_screenshots(self):
         """Handle Process Screenshots action"""
         print("Process Screenshots action triggered")
-        
+
         try:
             # Get initial directory from settings
             initial_dir = self.settings.get_setting("screenshots_dir", "")
-            
+
             # Create and show screenshot processing dialog
-            dialog = ScreenshotProcessingDialog(self, initial_dir=initial_dir, settings=self.settings)
+            dialog = ScreenshotProcessingDialog(
+                self, initial_dir=initial_dir, settings=self.settings
+            )
             dialog.processing_started.connect(self._on_processing_started)
-            
+
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self._update_status_message("Screenshot processing completed")
             else:
                 self._update_status_message("Screenshot processing cancelled")
-                
+
         except Exception as e:
             print(f"Error processing screenshots: {e}")
             self._update_status_message(f"Error processing screenshots: {e}")
-    
+
     def _on_processing_started(self, directory_path: str, overwrite: bool):
         """Handle successful processing start - create and start screenshot processing worker"""
-        print(f"Processing started for directory: {directory_path}, overwrite: {overwrite}")
+        print(
+            f"Processing started for directory: {directory_path}, overwrite: {overwrite}"
+        )
         self._update_status_message(f"Starting background screenshot processing...")
-        
+
         try:
             # Generate task ID
             import uuid
+
             task_id = str(uuid.uuid4())
-            
+
             # Add task to tracking system
-            self._add_processing_task(task_id, f"Screenshot Processing: {os.path.basename(directory_path)}")
-            
+            self._add_processing_task(
+                task_id, f"Screenshot Processing: {os.path.basename(directory_path)}"
+            )
+
             # Create worker for screenshot processing
             worker = ScreenshotProcessingWorker(
-                directory_path=directory_path,
-                overwrite=overwrite,
-                task_id=task_id
+                directory_path=directory_path, overwrite=overwrite, task_id=task_id
             )
-            
+
             # Connect signals with task_id and worker
-            worker.signals.progress.connect(lambda c, t, tid=task_id: self._on_screenshot_processing_progress(c, t, tid))
+            worker.signals.progress.connect(
+                lambda c, t, tid=task_id: self._on_screenshot_processing_progress(
+                    c, t, tid
+                )
+            )
             worker.signals.status.connect(self._on_screenshot_processing_status)
-            worker.signals.result.connect(lambda r, tid=task_id: self._on_screenshot_processing_result(r, tid))
-            worker.signals.error.connect(lambda e, tid=task_id: self._on_screenshot_processing_error(e, tid))
-            worker.signals.finished.connect(lambda w=worker: self._on_screenshot_processing_finished(w))
-            
+            worker.signals.result.connect(
+                lambda r, tid=task_id: self._on_screenshot_processing_result(r, tid)
+            )
+            worker.signals.error.connect(
+                lambda e, tid=task_id: self._on_screenshot_processing_error(e, tid)
+            )
+            worker.signals.finished.connect(
+                lambda w=worker: self._on_screenshot_processing_finished(w)
+            )
+
             # Store worker for cancellation
             self.active_workers.append(worker)
-            
+
             # Start worker
             self.thread_pool.start(worker)
-            
+
             # Update task status and dashboard
             self._update_task_status(task_id, "Running")
             self._update_dashboard_statistics()
-            
+
             self._update_status_message("Screenshot processing started in background")
-        
+
         except Exception as e:
             print(f"Error starting screenshot processing worker: {e}")
             self._update_status_message(f"Error starting screenshot processing: {e}")
@@ -1325,8 +1494,10 @@ class MainWindow(QMainWindow):
 
     def _on_art_download_result(self, result: dict, task_id: str = None):
         try:
-            images = result.get('images_saved', 0) if isinstance(result, dict) else 0
-            self._update_status_message(f"Card art download complete: {images} images saved")
+            images = result.get("images_saved", 0) if isinstance(result, dict) else 0
+            self._update_status_message(
+                f"Card art download complete: {images} images saved"
+            )
             if task_id:
                 self._update_task_status(task_id, "Completed", progress=100)
         except Exception:
@@ -1351,61 +1522,61 @@ class MainWindow(QMainWindow):
         if task_id:
             self._update_task_status()  # refresh counter
         self._clear_progress()
-    
+
     def _on_about(self):
         """Handle About action"""
         print("About action triggered")
-        
+
         try:
             # Create and show about dialog
             dialog = AboutDialog(self)
             dialog.exec()
-            
+
         except Exception as e:
             print(f"Error showing about dialog: {e}")
             self._update_status_message(f"Error showing about dialog: {e}")
-    
+
     def closeEvent(self, event):
         """Handle window close event"""
         print("Closing application...")
-        
+
         # Clean up database connections
-        if hasattr(self, 'db'):
+        if hasattr(self, "db"):
             self.db.close()
             print("Database connections closed")
-        
+
         event.accept()
 
     def _get_display_name_and_rarity(self, card_code, raw_name, raw_rarity):
         """
         Clean the card name and resolve the display rarity.
-        
+
         Args:
             card_code: The card ID (e.g., 'A1_1')
             raw_name: The name from CARD_NAMES (e.g., 'Bulbasaur (1D)')
             raw_rarity: The rarity from the database
-            
+
         Returns:
             tuple: (display_name, display_rarity)
         """
         import re
-        
+
         full_name = raw_name if raw_name else card_code
         display_name = full_name
         display_rarity = raw_rarity
-        
+
         # Look for modifier in parentheses at the end of the name
         match = re.search(r"\s*\(([^)]+)\)$", full_name)
         if match:
             rarity_code = match.group(1)
-            display_name = full_name[:match.start()].strip()
-            
+            display_name = full_name[: match.start()].strip()
+
             # Map rarity code to display name if it exists in the map
             if rarity_code in RARITY_MAP:
                 display_rarity = RARITY_MAP[rarity_code]
             else:
-                # If code not in map but was in parentheses, use it as rarity 
+                # If code not in map but was in parentheses, use it as rarity
                 # (e.g., 'Promo' in 'Pikachu (Promo)')
                 display_rarity = rarity_code
-                
+
         return display_name, display_rarity

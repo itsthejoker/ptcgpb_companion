@@ -1,12 +1,12 @@
 rarity = {
-    '1D': 'Common',
-    '2D': 'Uncommon',
-    '3D': 'Rare',
-    '4D': 'Double Rare',
-    '1S': 'Illustration Rare',
-    '2S': 'Super / Special Rare',
-    '3S': 'Immersive',
-    'CR': 'Crown Rare',
+    "1D": "Common",
+    "2D": "Uncommon",
+    "3D": "Rare",
+    "4D": "Double Rare",
+    "1S": "Illustration Rare",
+    "2S": "Super / Special Rare",
+    "3S": "Immersive",
+    "CR": "Crown Rare",
 }
 
 sets = {
@@ -314,7 +314,6 @@ cards = {
     "A1_284": "Charizard ex (CR)",
     "A1_285": "Pikachu ex (CR)",
     "A1_286": "Mewtwo ex (CR)",
-
     "A1a_1": "Exeggcute (1D)",
     "A1a_2": "Exeggutor (2D)",
     "A1a_3": "Celebi ex (4D)",
@@ -401,7 +400,6 @@ cards = {
     "A1a_84": "Aerodactyl ex (2S)",
     "A1a_85": "Celebi ex (3S)",
     "A1a_86": "Mew ex (CR)",
-
     "A2b_1": "Weedle (1D)",
     "A2b_2": "Kakuna (2D)",
     "A2b_3": "Beedrill ex (4D)",
@@ -513,7 +511,6 @@ cards = {
     "A2b_109": "Wugtrio ex (2S)",
     "A2b_110": "Lucario ex (2S)",
     "A2b_111": "Poké Ball (CR)",
-
     "A2_1": "Oddish (1D)",
     "A2_2": "Gloom (1D)",
     "A2_3": "Bellossom (2D)",
@@ -721,7 +718,6 @@ cards = {
     "A2_205": "Dialga ex (3S)",
     "A2_206": "Palkia ex (CR)",
     "A2_207": "Dialga ex (CR)",
-
     "A2a_1": "Heracross (2D)",
     "A2a_2": "Burmy (1D)",
     "A2a_3": "Mothim (2D)",
@@ -818,7 +814,6 @@ cards = {
     "A2a_94": "Probopass ex (2S)",
     "A2a_95": "Arceus ex (3S)",
     "A2a_96": "Arceus ex (CR)",
-
     "A3_1": "Exeggcute (1D)",
     "A3_2": "Alolan Exeggutor (3D)",
     "A3_3": "Surskit (1D)",
@@ -1058,7 +1053,6 @@ cards = {
     "A3_237": "Wigglytuff ex (2S)",
     "A3_238": "Lunala ex (CR)",
     "A3_239": "Solgaleo ex (CR)",
-
     "A3a_1": "Petilil (1D)",
     "A3a_2": "Lilligant (1D)",
     "A3a_3": "Rowlet (1D)",
@@ -1162,7 +1156,6 @@ cards = {
     "A3a_101": "Aerodactyl ex (2S)",
     "A3a_102": "Pidgeot ex (2S)",
     "A3a_103": "Nihilego (CR)",
-
     "A3b_1": "Tropius (2D)",
     "A3b_2": "Leafeon (3D)",
     "A3b_3": "Bounsweet (1D)",
@@ -1270,7 +1263,6 @@ cards = {
     "A3b_105": "Zapdos ex (2S)",
     "A3b_106": "Gallade ex (2S)",
     "A3b_107": "Eevee Bag (CR)",
-
     "A4_1": "Oddish (1D)",
     "A4_2": "Gloom (2D)",
     "A4_3": "Bellossom (3D)",
@@ -1512,7 +1504,6 @@ cards = {
     "A4_239": "Lickilicky ex (2S)",
     "A4_240": "Ho-Oh ex (CR)",
     "A4_241": "Lugia ex (CR)",
-
     "A4a_1": "Hoppip (1D)",
     "A4a_2": "Skiploom (2D)",
     "A4a_3": "Jumpluff ex (4D)",
@@ -1618,7 +1609,6 @@ cards = {
     "A4a_103": "Garchomp ex (2S)",
     "A4a_104": "Paldean Clodsire ex (2S)",
     "A4a_105": "Mantyke (CR)",
-
     "A4b_1": "Bulbasaur (1D)",
     "A4b_2": "Bulbasaur (1D)",
     "A4b_3": "Ivysaur (2D)",
@@ -1998,7 +1988,6 @@ cards = {
     "A4b_377": "Giratina ex (2S)",
     "A4b_378": "Darkrai ex (2S)",
     "A4b_379": "Rare Candy (CR)",
-
     "B1_1": "Pinsir (1D)",
     "B1_2": "Mega Pinsir ex (4D)",
     "B1_3": "Wurmple (1D)",

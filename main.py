@@ -16,25 +16,31 @@ from PyQt6.QtCore import Qt
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.main_window import MainWindow
-from app.utils import check_dependencies, initialize_data_directory
+from app.utils import check_dependencies, initialize_data_directory, get_portable_path
+
 
 def setup_logging():
     """Set up logging configuration"""
+    log_file = get_portable_path("data", "logs", "app.log")
+
+    # Ensure log directory exists
+    log_dir = os.path.dirname(log_file)
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir, exist_ok=True)
+
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler('data/logs/app.log'),
-            logging.StreamHandler()
-        ]
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.FileHandler(log_file), logging.StreamHandler()],
     )
     return logging.getLogger(__name__)
+
 
 def main():
     """Main application entry point"""
     logger = setup_logging()
     logger.info("Starting PTCGP Card Tracker application")
-    
+
     # Initialize data directory structure
     try:
         initialize_data_directory()
@@ -42,33 +48,34 @@ def main():
     except Exception as e:
         logger.error(f"Failed to initialize data directory: {e}")
         sys.exit(1)
-    
+
     # Check dependencies
     if not check_dependencies():
         logger.error("Dependency check failed")
         sys.exit(1)
-    
+
     # Create Qt application
     app = QApplication(sys.argv)
     app.setApplicationName("PTCGP Card Tracker")
     app.setOrganizationName("CardCounter")
     app.setOrganizationDomain("cardcounter.local")
-    
+
     # Set application style
     # app.setStyle('Fusion')
-    
+
     # Create and show main window
     try:
         main_window = MainWindow()
         main_window.show()
         logger.info("Main window created and shown")
-        
+
         # Start application event loop
         sys.exit(app.exec())
-        
+
     except Exception as e:
         logger.error(f"Failed to start application: {e}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

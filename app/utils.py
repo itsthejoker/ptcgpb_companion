@@ -16,17 +16,18 @@ from PyQt6.QtCore import QSettings
 
 logger = logging.getLogger(__name__)
 
+
 def get_portable_path(*parts):
     """
     Get absolute path relative to application root
-    
+
     Args:
         *parts: Path components to join
-        
+
     Returns:
         str: Absolute path
     """
-    if hasattr(sys, '_MEIPASS'):  # PyInstaller
+    if hasattr(sys, "_MEIPASS"):  # PyInstaller
         base_path = sys._MEIPASS
     else:
         base_path = os.path.dirname(os.path.abspath(__file__))
@@ -34,25 +35,27 @@ def get_portable_path(*parts):
         base_path = os.path.dirname(base_path)
     return os.path.join(base_path, *parts)
 
+
 def initialize_data_directory():
     """
     Ensure data directory structure exists
-    
+
     Creates the following structure:
     - data/
       - uploads/
       - logs/
       - cardcounter.db (if doesn't exist)
     """
-    data_dir = get_portable_path('data')
+    data_dir = get_portable_path("data")
     os.makedirs(data_dir, exist_ok=True)
-    os.makedirs(os.path.join(data_dir, 'uploads'), exist_ok=True)
-    os.makedirs(os.path.join(data_dir, 'logs'), exist_ok=True)
-    
+    os.makedirs(os.path.join(data_dir, "uploads"), exist_ok=True)
+    os.makedirs(os.path.join(data_dir, "logs"), exist_ok=True)
+
     # Initialize database if it doesn't exist
-    db_path = os.path.join(data_dir, 'cardcounter.db')
+    db_path = os.path.join(data_dir, "cardcounter.db")
     if not os.path.exists(db_path):
         from app.database import Database
+
         try:
             db = Database(db_path)
             db._initialize_database()
@@ -61,64 +64,67 @@ def initialize_data_directory():
             logger.error(f"Failed to initialize database: {e}")
             raise
 
+
 def check_dependencies():
     """
     Check if all required dependencies are available
-    
+
     Returns:
         bool: True if all dependencies are available, False otherwise
     """
-    required_modules = ['PyQt6', 'cv2', 'numpy', 'pandas', 'PIL']
-    
+    required_modules = ["PyQt6", "cv2", "numpy", "pandas", "PIL"]
+
     missing = []
     for module in required_modules:
         try:
             __import__(module)
         except ImportError:
             missing.append(module)
-    
+
     if missing:
         error_msg = f"Missing required dependencies: {', '.join(missing)}"
         error_msg += "\nPlease run: pip install -r requirements.txt"
         logger.error(error_msg)
         return False
-    
+
     logger.info("All dependencies are available")
     return True
+
 
 class PortableSettings:
     """
     Portable settings management using QSettings
-    
+
     Stores settings in a portable INI file within the data directory.
     """
-    
+
     def __init__(self):
-        config_path = get_portable_path('data', 'config.ini')
+        config_path = get_portable_path("data", "config.ini")
         self.settings = QSettings(config_path, QSettings.Format.IniFormat)
-    
+
     def load_settings(self):
         """Load settings from portable config file"""
         # Implement as needed
         pass
-    
+
     def save_settings(self):
         """Save settings to portable config file"""
         # Implement as needed
         pass
-    
+
     def get_setting(self, key, default=None):
         """Get a specific setting"""
         return self.settings.value(key, default)
-    
+
     def set_setting(self, key, value):
         """Set a specific setting"""
         self.settings.setValue(key, value)
 
+
 def show_error_message(title, message):
     """
     Show an error message dialog
-    
+
     Args:
         title: Dialog title
         message: Error message
@@ -129,10 +135,11 @@ def show_error_message(title, message):
     msg_box.setText(message)
     msg_box.exec()
 
+
 def show_info_message(title, message):
     """
     Show an information message dialog
-    
+
     Args:
         title: Dialog title
         message: Information message
