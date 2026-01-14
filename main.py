@@ -6,6 +6,7 @@ This is the main entry point for the Card Counter PyQt6 application.
 It initializes the application, checks dependencies, and starts the main window.
 """
 
+import ctypes
 import sys
 import os
 import logging
@@ -17,7 +18,7 @@ from PyQt6 import QtGui
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.main_window import MainWindow
-from app.utils import check_dependencies, initialize_data_directory, get_portable_path
+from app.utils import check_dependencies, initialize_data_directory, get_portable_path, get_app_version
 
 
 def setup_logging():
@@ -77,6 +78,11 @@ def main():
         icon.addFile('app/ptcgpb-companion-icon.ico', QtCore.QSize(size, size))
 
     app.setWindowIcon(icon)
+
+    myappid = f'itsthejoker.ptcgpb-companion.{get_app_version()}'
+    if os.name == 'nt':
+        # windows-based witchcraft
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
     # Set application style
     app.setStyle('Fusion')
