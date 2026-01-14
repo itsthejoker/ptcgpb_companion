@@ -323,6 +323,7 @@ class ScreenshotProcessingWorker(QRunnable):
         self.task_id = task_id
         self.signals = WorkerSignals()
         self._is_cancelled = False
+        self._executor = None
 
     def run(self):
         """Process screenshot images in background thread"""
@@ -476,18 +477,19 @@ class ScreenshotProcessingWorker(QRunnable):
                     self.signals.status.emit(f"Error processing {filename}: {e}")
                     return False
 
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            self._executor = ThreadPoolExecutor(max_workers=max_workers)
+            try:
                 # Submit all tasks
                 future_to_file = {
-                    executor.submit(process_single_file, filename): filename
+                    self._executor.submit(process_single_file, filename): filename
                     for filename in image_files
                 }
 
                 # Process results as they complete
                 for future in as_completed(future_to_file):
                     if self._is_cancelled:
-                        # Attempt to cancel remaining tasks
-                        executor.shutdown(wait=False, cancel_futures=True)
+                        # Attempt to cancel remaining tasks without blocking
+                        self._shutdown_executor(wait=False, cancel_futures=True)
                         self.signals.status.emit("Screenshot processing cancelled")
                         return
 
@@ -509,6 +511,11 @@ class ScreenshotProcessingWorker(QRunnable):
                         self.signals.status.emit(
                             f"Processed {processed_count} of {total_files} images"
                         )
+            finally:
+                # Ensure executor threads are cleaned up appropriately
+                self._shutdown_executor(
+                    wait=not self._is_cancelled, cancel_futures=self._is_cancelled
+                )
 
             self.signals.progress.emit(total_files, total_files)
             self.signals.status.emit(
@@ -674,6 +681,18 @@ class ScreenshotProcessingWorker(QRunnable):
     def cancel(self):
         """Cancel the worker"""
         self._is_cancelled = True
+        self._shutdown_executor(wait=False, cancel_futures=True)
+
+    def _shutdown_executor(self, wait: bool = True, cancel_futures: bool = False):
+        """Shut down the internal executor safely"""
+        executor = getattr(self, "_executor", None)
+        if executor:
+            try:
+                executor.shutdown(wait=wait, cancel_futures=cancel_futures)
+            except Exception:
+                pass
+            finally:
+                self._executor = None
 
 
 class DatabaseBackupWorker(QRunnable):
