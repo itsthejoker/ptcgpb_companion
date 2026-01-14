@@ -30,7 +30,6 @@ class ImageProcessor:
 
         # Pre-calculated templates for performance
         self.quick_templates = {}
-        self.gray_templates = {}
 
         if self.card_database:
             self._prepare_templates()
@@ -169,9 +168,8 @@ class ImageProcessor:
             raise
 
     def _prepare_templates(self):
-        """Pre-calculate grayscale and resized versions of all templates for faster matching"""
+        """Pre-calculate resized versions of all templates for faster matching"""
         self.quick_templates = {}
-        self.gray_templates = {}
 
         # Use fixed sizes consistent with _find_best_card_match and _detect_card_positions
         quick_target_width = 80
@@ -184,22 +182,16 @@ class ImageProcessor:
 
         for set_name, cards in self.card_database.items():
             self.quick_templates[set_name] = {}
-            self.gray_templates[set_name] = {}
             for card_name, template in cards.items():
-                # 1. Full-size grayscale
-                if len(template.shape) == 3:
-                    gray = cv2.cvtColor(template, cv2.COLOR_RGB2GRAY)
+                # Ensure template is in RGB (handle any grayscale templates)
+                if len(template.shape) == 2:
+                    template_rgb = cv2.cvtColor(template, cv2.COLOR_GRAY2RGB)
                 else:
-                    gray = template
-                self.gray_templates[set_name][card_name] = gray
+                    template_rgb = template
 
-                # 2. Quick grayscale
-                quick = cv2.resize(template, (quick_target_width, quick_target_height))
-                if len(quick.shape) == 3:
-                    quick_gray = cv2.cvtColor(quick, cv2.COLOR_RGB2GRAY)
-                else:
-                    quick_gray = quick
-                self.quick_templates[set_name][card_name] = quick_gray
+                # 1. Quick resized template (color)
+                quick = cv2.resize(template_rgb, (quick_target_width, quick_target_height))
+                self.quick_templates[set_name][card_name] = quick
 
     def process_screenshot(self, image_path: str) -> List[Dict[str, Any]]:
         """
@@ -451,95 +443,101 @@ class ImageProcessor:
         if not hasattr(self, "quick_templates") or not self.quick_templates:
             self._prepare_templates()
 
+        # If a detailed search is explicitly requested for a known set, skip the quick pass
+        detailed_only = force_set is not None and force_detailed
+
         # Multi-stage matching for better performance:
         # 1. Quick search at reduced resolution to identify likely set
         # 2. Detailed search at full resolution within the identified set
 
         # Stage 1: Quick search at reduced resolution
-        quick_target_width = 80
-        aspect_ratio = card_region.shape[1] / card_region.shape[0]
-        quick_target_height = int(quick_target_width / aspect_ratio)
-        quick_region = cv2.resize(
-            card_region, (quick_target_width, quick_target_height)
-        )
-
-        # Convert to grayscale for quick search
-        if len(quick_region.shape) == 3:
-            quick_gray = cv2.cvtColor(quick_region, cv2.COLOR_RGB2GRAY)
-        else:
-            quick_gray = quick_region
-
-        # Quick search to identify likely set and best card match
-        set_scores = {}
         quick_best_match = None
-        quick_best_score = -1
-
-        search_sets = [force_set] if force_set else self.quick_templates.keys()
-
-        for set_name in search_sets:
-            if set_name not in self.quick_templates:
-                continue
-
-            cards = self.quick_templates[set_name]
-            for card_name, quick_template_gray in cards.items():
-                try:
-                    # Note: We assume all templates were resized to the same quick_target_height
-                    # which is true for standard card regions (75x106)
-                    result = cv2.matchTemplate(
-                        quick_gray, quick_template_gray, cv2.TM_CCORR_NORMED
-                    )
-                    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-
-                    if max_val > set_scores.get(set_name, 0):
-                        set_scores[set_name] = max_val
-
-                    if max_val > quick_best_score:
-                        quick_best_score = max_val
-                        quick_best_match = {
-                            "card_name": card_name,
-                            "card_set": set_name,
-                            "confidence": max_val,
-                        }
-                except cv2.error:
-                    # If size mismatch, fallback to resizing (shouldn't happen with fixed regions)
-                    quick_template_resized = cv2.resize(
-                        quick_template_gray, (quick_gray.shape[1], quick_gray.shape[0])
-                    )
-                    result = cv2.matchTemplate(
-                        quick_gray, quick_template_resized, cv2.TM_CCORR_NORMED
-                    )
-                    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-                    if max_val > set_scores.get(set_name, 0):
-                        set_scores[set_name] = max_val
-
-                    if max_val > quick_best_score:
-                        quick_best_score = max_val
-                        quick_best_match = {
-                            "card_name": card_name,
-                            "card_set": set_name,
-                            "confidence": max_val,
-                        }
-
-        # Determine the most likely set from quick search
+        set_scores = {}
         likely_set = None
-        if set_scores:
-            likely_set = max(set_scores.items(), key=lambda x: x[1])[0]
-            logger.info(
-                f"Quick search identified likely set: {likely_set} (score: {set_scores[likely_set]:.3f})"
-            )
 
-        # Optimization: If quick search is extremely confident, skip detailed search
-        # Only if not forced to do a detailed search
-        CONFIDENCE_THRESHOLD = 0.90
-        if (
-            not force_detailed
-            and quick_best_match
-            and quick_best_match["confidence"] >= CONFIDENCE_THRESHOLD
-        ):
-            logger.info(
-                f"Quick search extremely confident ({quick_best_match['confidence']:.3f}), skipping detailed search"
+        if not detailed_only:
+            quick_target_width = 80
+            quick_target_height = None
+
+            # Reuse prepared quick template dimensions to avoid per-template resizing
+            first_quick_template = None
+            for templates in self.quick_templates.values():
+                if templates:
+                    first_quick_template = next(iter(templates.values()))
+                    break
+
+            if first_quick_template is not None:
+                quick_target_height = first_quick_template.shape[0]
+                quick_target_width = first_quick_template.shape[1]
+            else:
+                aspect_ratio = card_region.shape[1] / card_region.shape[0]
+                quick_target_height = int(quick_target_width / aspect_ratio)
+
+            quick_region = cv2.resize(
+                card_region, (quick_target_width, quick_target_height)
             )
-            return quick_best_match
+            if len(quick_region.shape) == 2:
+                quick_region = cv2.cvtColor(quick_region, cv2.COLOR_GRAY2RGB)
+
+            # Quick search to identify likely set and best card match
+            search_sets = [force_set] if force_set else self.quick_templates.keys()
+
+            for set_name in search_sets:
+                if set_name not in self.quick_templates:
+                    continue
+
+                cards = self.quick_templates[set_name]
+                for card_name, quick_template in cards.items():
+                    try:
+                        if (
+                            quick_template.shape[0] != quick_region.shape[0]
+                            or quick_template.shape[1] != quick_region.shape[1]
+                        ):
+                            template_to_use = cv2.resize(
+                                quick_template,
+                                (quick_region.shape[1], quick_region.shape[0]),
+                            )
+                        else:
+                            template_to_use = quick_template
+
+                        result = cv2.matchTemplate(
+                            quick_region, template_to_use, cv2.TM_CCORR_NORMED
+                        )
+                        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+                        if max_val > set_scores.get(set_name, 0):
+                            set_scores[set_name] = max_val
+
+                        if (quick_best_match is None) or (
+                            max_val > quick_best_match["confidence"]
+                        ):
+                            quick_best_match = {
+                                "card_name": card_name,
+                                "card_set": set_name,
+                                "confidence": max_val,
+                            }
+                    except cv2.error:
+                        continue
+
+            # Determine the most likely set from quick search
+            if set_scores:
+                likely_set = max(set_scores.items(), key=lambda x: x[1])[0]
+                logger.info(
+                    f"Quick search identified likely set: {likely_set} (score: {set_scores[likely_set]:.3f})"
+                )
+
+            # Optimization: If quick search is extremely confident, skip detailed search
+            # Only if not forced to do a detailed search
+            CONFIDENCE_THRESHOLD = 0.90
+            if (
+                not force_detailed
+                and quick_best_match
+                and quick_best_match["confidence"] >= CONFIDENCE_THRESHOLD
+            ):
+                logger.info(
+                    f"Quick search extremely confident ({quick_best_match['confidence']:.3f}), skipping detailed search"
+                )
+                return quick_best_match
 
         # Stage 2: Detailed search at full resolution
         search_set = force_set if force_set else likely_set
@@ -548,21 +546,34 @@ class ImageProcessor:
         target_width, target_height = 367, 512  # Standard full card size
         upscaled_region = cv2.resize(card_region, (target_width, target_height))
 
-        # Convert to grayscale once for efficiency
-        if len(upscaled_region.shape) == 3:
-            upscaled_gray = cv2.cvtColor(upscaled_region, cv2.COLOR_RGB2GRAY)
-        else:
-            upscaled_gray = upscaled_region
+        if len(upscaled_region.shape) == 2:
+            upscaled_region = cv2.cvtColor(upscaled_region, cv2.COLOR_GRAY2RGB)
 
         # Detailed search in the identified set
-        if search_set and search_set in self.gray_templates:
+        if search_set and search_set in self.card_database:
             logger.info(f"Performing detailed search in set: {search_set}")
 
-            for card_name, template_gray in self.gray_templates[search_set].items():
-                # Use pre-calculated full-size grayscale template
+            for card_name, template in self.card_database[search_set].items():
+                # Use pre-calculated full-size color template
                 try:
+                    template_color = template
+
+                    if len(template_color.shape) == 2:
+                        template_color = cv2.cvtColor(
+                            template_color, cv2.COLOR_GRAY2RGB
+                        )
+
+                    if (
+                        template_color.shape[0] != upscaled_region.shape[0]
+                        or template_color.shape[1] != upscaled_region.shape[1]
+                    ):
+                        template_color = cv2.resize(
+                            template_color,
+                            (upscaled_region.shape[1], upscaled_region.shape[0]),
+                        )
+
                     result = cv2.matchTemplate(
-                        upscaled_gray, template_gray, cv2.TM_CCORR_NORMED
+                        upscaled_region, template_color, cv2.TM_CCORR_NORMED
                     )
                     min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
