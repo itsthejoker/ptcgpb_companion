@@ -6,17 +6,22 @@ This is the main entry point for the Card Counter PyQt6 application.
 It initializes the application, checks dependencies, and starts the main window.
 """
 
+import ctypes
 import sys
 import os
 import logging
+from PyQt6 import QtCore
 from PyQt6.QtWidgets import QApplication
 from PyQt6 import QtGui
 
 # Add the app directory to Python path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# meipass is the _internal directory when the application is packaged with PyInstaller
+basedir = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+
 from app.main_window import MainWindow
-from app.utils import check_dependencies, initialize_data_directory, get_portable_path
+from app.utils import check_dependencies, initialize_data_directory, get_portable_path, get_app_version
 
 
 def setup_logging():
@@ -67,7 +72,20 @@ def main():
     app.setApplicationName("PTCGP Card Tracker")
     app.setOrganizationName("CardCounter")
     app.setOrganizationDomain("cardcounter.local")
-    app.setWindowIcon(QtGui.QIcon('app/ptcgpb-companion-icon.ico'))
+
+    icon = QtGui.QIcon()
+
+    sizes = [16, 24, 32, 48, 64, 96, 128, 256, 512]
+
+    for size in sizes:
+        icon.addFile(os.path.join(basedir, 'ptcgpb-companion-icon.ico'), QtCore.QSize(size, size))
+
+    app.setWindowIcon(icon)
+
+    myappid = f'itsthejoker.ptcgpb-companion.{get_app_version()}'
+    if os.name == 'nt':
+        # windows-based witchcraft
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 
     # Set application style
     app.setStyle('Fusion')
@@ -75,6 +93,7 @@ def main():
     # Create and show main window
     try:
         main_window = MainWindow()
+        main_window.setWindowIcon(QtGui.QIcon(icon))
         main_window.show()
         logger.info("Main window created and shown")
 

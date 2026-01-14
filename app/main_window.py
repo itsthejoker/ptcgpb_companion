@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize, QTimer
 from PyQt6.QtGui import QAction
 import os
+import sys
 import logging
 from datetime import datetime
 
@@ -109,8 +110,26 @@ class MainWindow(QMainWindow):
 
             template_dir = get_portable_path("resources", "card_imgs")
             if not os.path.isdir(template_dir):
+                # Ask user if they want to download art now or quit
+                msg_box = QMessageBox(self)
+                msg_box.setWindowTitle("Download Card Art")
+                msg_box.setText(
+                    "Card art images are missing. These are required for card recognition.\n\n"
+                    "Would you like to download them now?"
+                )
+                download_button = msg_box.addButton("Download", QMessageBox.ButtonRole.AcceptRole)
+                quit_button = msg_box.addButton("Quit", QMessageBox.ButtonRole.RejectRole)
+                msg_box.setDefaultButton(download_button)
+                msg_box.setIcon(QMessageBox.Icon.Question)
+
+                msg_box.exec()
+
+                if msg_box.clickedButton() == quit_button:
+                    logger.info("User chose to quit instead of downloading card art")
+                    sys.exit(0)
+
                 self._update_status_message(
-                    "Card art not found. Downloading templates in background…"
+                    "Downloading card art in background…"
                 )
 
                 # Create a task entry so it appears in Processing tab & counter
