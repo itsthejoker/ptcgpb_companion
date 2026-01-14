@@ -48,7 +48,9 @@ PYI_OPTS=(
 #ADD_DATA=(
 #  "resources/card_imgs:resources/card_imgs"
 #)
-ADD_DATA=()
+ADD_DATA=(
+  "app/ptcgpb-companion-icon.ico:app/ptcgpb-companion-icon.ico",
+)
 
 for spec in "${ADD_DATA[@]}"; do
   PYI_OPTS+=( --add-data "$spec" )

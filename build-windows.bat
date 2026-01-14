@@ -45,7 +45,7 @@ REM Example (uncomment and adjust as needed):
 REM   set "PYI_ADD_DATA=resources\card_imgs;resources\card_imgs"
 REM For multiple entries, separate by spaces:
 REM   set "PYI_ADD_DATA=resources\card_imgs;resources\card_imgs resources\icons;resources\icons"
-set "PYI_ADD_DATA="
+set "PYI_ADD_DATA=app\ptcgpb-companion-icon.ico:app\ptcgpb-companion-icon.ico"
 
 for %%D in (%PYI_ADD_DATA%) do (
   set "PYI_OPTS=!PYI_OPTS! --add-data \"%%D\""

@@ -17,6 +17,8 @@ from PyQt6 import QtGui
 # Add the app directory to Python path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+basedir = os.path.dirname(__file__)
+
 from app.main_window import MainWindow
 from app.utils import check_dependencies, initialize_data_directory, get_portable_path, get_app_version
 
@@ -75,7 +77,7 @@ def main():
     sizes = [16, 24, 32, 48, 64, 96, 128, 256, 512]
 
     for size in sizes:
-        icon.addFile('app/ptcgpb-companion-icon.ico', QtCore.QSize(size, size))
+        icon.addFile(os.path.join(basedir, 'app/ptcgpb-companion-icon.ico'), QtCore.QSize(size, size))
 
     app.setWindowIcon(icon)
 
