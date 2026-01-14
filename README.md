@@ -12,13 +12,21 @@ I've been using different versions of this application over the past few weeks a
 
 ## Instructions
 
-### GitHub Releases
+### Installing from GitHub Releases
 
 Download the latest release [from the releases page](https://github.com/itsthejoker/ptcgpb_companion/releases). Unzip the .exe and the _internal folder to a common directory. This is a portable application, so there's nothing to install. Doubleclick the .exe file to start the app.
 
-### Manually
+### Installing Manually
 
 You will need Python 3.14+ and `uv` installed. Clone this repo first, then run `uv sync`. Use the run.bat/run.sh commands to start the app.
+
+### Updating (GitHub Releases)
+
+Download the latest release, then copy the new files over the old ones. Select "Replace all". The database and downloaded art will remain untouched and will open with the new version.
+
+### Updating (Manually)
+
+Run `git pull`, `uv sync`, and then the appropriate `run` file for your OS as normal.
 
 ## Note on First Run
 
