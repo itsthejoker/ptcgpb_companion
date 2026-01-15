@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_SETTINGS = {
-    "General/csv_import_dir": "",
     "General/csv_import_path": "",
     "General/screenshots_dir": "",
     "Screenshots/watch_directory": True,

@@ -2060,17 +2060,17 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """Handle window close event"""
         print("Closing application...")
-        # Hide the window immediately
-        self.hide()
         
-        # Force the UI to process the hide event before we do anything else
+        # Display the closing message
+        self._update_status_message(
+            "Closing application. Cleaning up... this may take a moment."
+        )
+        
+        # Force the UI to process the status update
         from PyQt6.QtWidgets import QApplication
         QApplication.processEvents()
-        
-        # Accept the event so the window is technically closed
-        event.accept()
 
-        # Perform cleanup in a way that doesn't block the UI
+        # Perform cleanup
         try:
             # Stop watchdog
             if hasattr(self, "_watchdog_observer") and self._watchdog_observer:
@@ -2100,6 +2100,10 @@ class MainWindow(QMainWindow):
                     pass
         except Exception as e:
             print(f"Error during shutdown: {e}")
+
+        # Finally hide and accept the event
+        self.hide()
+        event.accept()
 
     def _get_display_name_and_rarity(self, card_code, raw_name, raw_rarity):
         """

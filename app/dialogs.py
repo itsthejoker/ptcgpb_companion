@@ -382,7 +382,6 @@ class PreferencesDialog(QDialog):
 
         # Help messages for settings
         help_messages = {
-            "General/csv_import_dir": "Directory containing CSV files for account data import.",
             "General/csv_import_path": "Path to the main account database CSV file.",
             "General/screenshots_dir": "Directory where your PTCGP screenshots are stored.",
             "Screenshots/watch_directory": "Enable or disable automatic monitoring of the screenshots directory.",
