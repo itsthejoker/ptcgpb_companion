@@ -44,6 +44,7 @@ from app.dialogs import (
     AboutDialog,
     CardImageDialog,
     AccountCardListDialog,
+    PreferencesDialog,
 )
 
 from app.workers import (
@@ -56,6 +57,23 @@ from app.workers import (
 from PyQt6.QtCore import QThreadPool, Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 from app.utils import PortableSettings, get_portable_path, get_app_version
+from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
+from watchdog.events import FileSystemEventHandler
+
+
+class ScreenshotChangeHandler(FileSystemEventHandler):
+    """Handler for watchdog events in the screenshots directory"""
+
+    def __init__(self):
+        super().__init__()
+        self.has_changes = False
+
+    def on_any_event(self, event):
+        if not event.is_directory:
+            if event.event_type in ("created", "modified", "moved"):
+                logger.info(f"Watchdog detected {event.event_type} event: {event.src_path}")
+                self.has_changes = True
 
 
 class MainWindow(QMainWindow):
@@ -113,6 +131,9 @@ class MainWindow(QMainWindow):
 
         # Check for updates
         self._check_for_updates()
+
+        # Initialize watchdog system deferred to avoid blocking UI startup
+        QTimer.singleShot(0, self._init_watchdog)
 
     def _start_art_download_if_needed(self):
         """Check for card art directory and start background download if missing"""
@@ -257,6 +278,13 @@ class MainWindow(QMainWindow):
         self.load_new_data_action.triggered.connect(self._on_load_new_data)
         self.load_new_data_action.setEnabled(False)
         file_menu.addAction(self.load_new_data_action)
+
+        # Preferences action
+        preferences_action = QAction("&Preferences", self)
+        preferences_action.setShortcut("Ctrl+,")
+        preferences_action.triggered.connect(self._on_preferences)
+        file_menu.addSeparator()
+        file_menu.addAction(preferences_action)
 
         # Exit action
         exit_action = QAction("E&xit", self)
@@ -1340,8 +1368,8 @@ class MainWindow(QMainWindow):
 
     def _get_saved_paths(self):
         """Retrieve saved CSV and screenshot paths from settings"""
-        csv_path = self.settings.get_setting("csv_import_path", "")
-        screenshots_dir = self.settings.get_setting("screenshots_dir", "")
+        csv_path = self.settings.get_setting("General/csv_import_path", "")
+        screenshots_dir = self.settings.get_setting("General/screenshots_dir", "")
         return csv_path, screenshots_dir
 
     def _update_load_new_data_availability(self):
@@ -1412,7 +1440,7 @@ class MainWindow(QMainWindow):
 
         try:
             # Get initial path from settings
-            initial_path = self.settings.get_setting("csv_import_path", "")
+            initial_path = self.settings.get_setting("General/csv_import_path", "")
 
             # Create and show CSV import dialog
             dialog = CSVImportDialog(
@@ -1692,7 +1720,7 @@ class MainWindow(QMainWindow):
 
         try:
             # Get initial directory from settings
-            initial_dir = self.settings.get_setting("screenshots_dir", "")
+            initial_dir = self.settings.get_setting("General/screenshots_dir", "")
 
             # Create and show screenshot processing dialog
             dialog = ScreenshotProcessingDialog(
@@ -1837,10 +1865,124 @@ class MainWindow(QMainWindow):
             print(f"Error showing about dialog: {e}")
             self._update_status_message(f"Error showing about dialog: {e}")
 
+    def _on_preferences(self):
+        """Show preferences dialog"""
+        try:
+            dialog = PreferencesDialog(self, self.settings)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                # Refresh anything that might depend on settings
+                self._update_load_new_data_availability()
+                self._setup_watchdog()
+        except Exception as e:
+            logger.error(f"Error showing preferences dialog: {e}")
+            self._update_status_message(f"Error showing preferences dialog: {e}")
+
+    def _init_watchdog(self):
+        """Initialize the screenshot directory watchdog system"""
+        self._watchdog_observer = None
+        self._watchdog_handler = ScreenshotChangeHandler()
+
+        # Periodic check timer
+        self._watchdog_timer = QTimer(self)
+        self._watchdog_timer.timeout.connect(self._check_for_screenshot_changes)
+
+        # Initial setup
+        self._setup_watchdog()
+
+    def _setup_watchdog(self):
+        """Setup or refresh the watchdog observer based on settings"""
+        # Stop existing observer if any
+        if self._watchdog_observer:
+            try:
+                self._watchdog_observer.stop()
+                # We don't join here to avoid blocking the UI thread during setup,
+                # as stop() signals the thread to exit.
+            except Exception as e:
+                logger.error(f"Error stopping watchdog observer: {e}")
+            self._watchdog_observer = None
+
+        # Check if enabled
+        enabled = (
+            str(
+                self.settings.get_setting("Screenshots/watch_directory", "False")
+            ).lower()
+            == "true"
+        )
+        if not enabled:
+            self._watchdog_timer.stop()
+            logger.info("Watchdog system disabled by user preference")
+            return
+
+        # Get directory and interval
+        watch_dir = self.settings.get_setting("General/screenshots_dir", "")
+        interval_min = int(self.settings.get_setting("Screenshots/check_interval", 5))
+
+        if not watch_dir or not os.path.isdir(watch_dir):
+            logger.warning(f"Watchdog enabled but directory '{watch_dir}' is invalid")
+            self._watchdog_timer.stop()
+            return
+
+        # Start observer
+        try:
+            # We use PollingObserver specifically because many users are on WSL/network mounts
+            # where native inotify events don't work correctly.
+            # timeout=10 to keep CPU usage low with many files.
+            self._watchdog_observer = PollingObserver(timeout=10)
+            self._watchdog_observer.schedule(
+                self._watchdog_handler, watch_dir, recursive=False
+            )
+            self._watchdog_observer.start()
+
+            # Start timer
+            self._watchdog_timer.start(interval_min * 60 * 1000)
+            logger.info(
+                f"Watchdog started for {watch_dir}, checking every {interval_min} minutes"
+            )
+        except Exception as e:
+            logger.error(f"Failed to start watchdog observer: {e}")
+            self._watchdog_timer.stop()
+
+    def _check_for_screenshot_changes(self):
+        """Periodically check if watchdog detected any changes"""
+        logger.debug("Checking for screenshot changes flag...")
+        if not self._watchdog_handler.has_changes:
+            return
+        
+        logger.info("Changes detected in screenshots directory.")
+
+        # Check if a processing job is already running
+        is_running = any(
+            isinstance(w, ScreenshotProcessingWorker) for w in self.active_workers
+        )
+
+        if is_running:
+            logger.info(
+                "Screenshot changes detected, but processing is already in progress. Skipping."
+            )
+            return
+
+        logger.info("Screenshot changes detected by watchdog. Triggering processing job.")
+
+        # Reset flag
+        self._watchdog_handler.has_changes = False
+
+        # Trigger processing
+        watch_dir = self.settings.get_setting("General/screenshots_dir", "")
+        if watch_dir and os.path.isdir(watch_dir):
+            # We use overwrite=False for automatic watch
+            self._on_processing_started(watch_dir, overwrite=False)
+
     def closeEvent(self, event):
         """Handle window close event"""
         print("Closing application...")
         try:
+            # Stop watchdog
+            if hasattr(self, "_watchdog_observer") and self._watchdog_observer:
+                try:
+                    self._watchdog_observer.stop()
+                except Exception:
+                    pass
+
             # Request cancellation on any active workers
             for worker in getattr(self, "active_workers", []):
                 cancel = getattr(worker, "cancel", None)

@@ -18,6 +18,16 @@ from PyQt6.QtCore import QSettings
 logger = logging.getLogger(__name__)
 
 
+DEFAULT_SETTINGS = {
+    "General/csv_import_dir": "",
+    "General/csv_import_path": "",
+    "General/screenshots_dir": "",
+    "Screenshots/watch_directory": True,
+    "Screenshots/check_interval": 5,
+    "Logging/enabled": False,
+}
+
+
 def get_portable_path(*parts):
     """
     Get absolute path relative to application root
@@ -69,14 +79,15 @@ def initialize_data_directory():
 
     Creates the following structure:
     - data/
-      - uploads/
       - logs/
       - cardcounter.db (if doesn't exist)
     """
     data_dir = get_portable_path("data")
     os.makedirs(data_dir, exist_ok=True)
-    os.makedirs(os.path.join(data_dir, "uploads"), exist_ok=True)
     os.makedirs(os.path.join(data_dir, "logs"), exist_ok=True)
+
+    # Initialize settings and ensure defaults are set
+    PortableSettings()
 
     # Initialize database if it doesn't exist
     db_path = os.path.join(data_dir, "cardcounter.db")
@@ -127,25 +138,50 @@ class PortableSettings:
 
     def __init__(self):
         config_path = get_portable_path("data", "config.ini")
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
         self.settings = QSettings(config_path, QSettings.Format.IniFormat)
+        self._initialize_defaults()
+
+    def _initialize_defaults(self):
+        """Ensure all default settings exist"""
+        for key, value in DEFAULT_SETTINGS.items():
+            if self.settings.value(key) is None:
+                self.settings.setValue(key, value)
+        self.settings.sync()
 
     def load_settings(self):
         """Load settings from portable config file"""
-        # Implement as needed
-        pass
+        self.settings.sync()
 
     def save_settings(self):
         """Save settings to portable config file"""
-        # Implement as needed
-        pass
+        self.settings.sync()
 
     def get_setting(self, key, default=None):
         """Get a specific setting"""
-        return self.settings.value(key, default)
+        # If no default provided, try to get it from DEFAULT_SETTINGS
+        if default is None and key in DEFAULT_SETTINGS:
+            default = DEFAULT_SETTINGS[key]
+
+        value = self.settings.value(key, default)
+
+        # QSettings often returns strings for booleans/integers from INI files
+        # We want to cast them if we know the expected type from the default
+        if isinstance(default, bool) and not isinstance(value, bool):
+            return str(value).lower() == "true"
+        if isinstance(default, int) and not isinstance(value, int):
+            try:
+                return int(value)
+            except (ValueError, TypeError):
+                return default
+
+        return value
 
     def set_setting(self, key, value):
         """Set a specific setting"""
         self.settings.setValue(key, value)
+        self.settings.sync()
 
 
 def show_error_message(title, message):

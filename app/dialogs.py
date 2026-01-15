@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
+    QWidget,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QSize
 from PyQt6.QtGui import QIcon, QValidator, QPixmap
@@ -153,7 +154,7 @@ class CSVImportDialog(QDialog):
 
             # Save the path to settings
             if self._settings:
-                self._settings.set_setting("csv_import_path", file_path)
+                self._settings.set_setting("General/csv_import_path", file_path)
 
     def _load_csv_preview(self, file_path: str):
         """Load and display preview of CSV file"""
@@ -292,7 +293,7 @@ class ScreenshotProcessingDialog(QDialog):
 
             # Save the directory to settings
             if self._settings:
-                self._settings.set_setting("screenshots_dir", dir_path)
+                self._settings.set_setting("General/screenshots_dir", dir_path)
 
     def _load_file_list(self, dir_path: str):
         """Load and display list of image files in directory"""
@@ -339,6 +340,123 @@ class ScreenshotProcessingDialog(QDialog):
             )
             self.status_label.setText(f"Error: {e}")
             self.process_btn.setEnabled(True)
+
+
+class PreferencesDialog(QDialog):
+    """Dialog for managing application preferences"""
+
+    def __init__(self, parent=None, settings=None):
+        super().__init__(parent)
+        self.setWindowTitle("Preferences")
+        self.setMinimumSize(600, 400)
+        self._settings = settings
+        self._inputs = {}
+        self._setup_ui()
+        self._load_preferences()
+
+    def _setup_ui(self):
+        """Set up the user interface"""
+        layout = QVBoxLayout(self)
+
+        # Scroll area for many settings
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_content = QWidget()
+        self.form_layout = QFormLayout(scroll_content)
+        scroll.setWidget(scroll_content)
+
+        layout.addWidget(scroll)
+
+        # Buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def _load_preferences(self):
+        """Load preferences from settings and create form fields"""
+        if not self._settings:
+            return
+
+        # Help messages for settings
+        help_messages = {
+            "General/csv_import_dir": "Directory containing CSV files for account data import.",
+            "General/csv_import_path": "Path to the main account database CSV file.",
+            "General/screenshots_dir": "Directory where your PTCGP screenshots are stored.",
+            "Screenshots/watch_directory": "Enable or disable automatic monitoring of the screenshots directory.",
+            "Screenshots/check_interval": "How often (in minutes) to check for new screenshots when monitoring is enabled.",
+        }
+
+        keys = self._settings.settings.allKeys()
+        for key in sorted(keys):
+            value = self._settings.get_setting(key)
+
+            row_layout = QHBoxLayout()
+
+            # Create a label for the key
+            label = QLabel(key)
+
+            # Help message support
+            if key in help_messages:
+                # Add tooltip to label
+                label.setToolTip(help_messages[key])
+
+                # Add a small help icon
+                help_icon = QLabel("ⓘ")
+                help_icon.setToolTip(help_messages[key])
+                help_icon.setStyleSheet(
+                    "color: #0078d7; font-weight: bold; margin-right: 5px;"
+                )
+                row_layout.addWidget(help_icon)
+
+            input_widget = None
+
+            # Handle booleans
+            if isinstance(value, bool) or str(value).lower() in ("true", "false"):
+                checkbox = QCheckBox()
+                checkbox.setChecked(str(value).lower() == "true" or value is True)
+                row_layout.addWidget(checkbox)
+                input_widget = checkbox
+            else:
+                line_edit = QLineEdit(str(value))
+                row_layout.addWidget(line_edit)
+                input_widget = line_edit
+
+                # Add Browse button for path-like keys
+                if "path" in key.lower() or "dir" in key.lower():
+                    browse_btn = QPushButton("Browse...")
+                    browse_btn.clicked.connect(
+                        lambda checked, k=key, le=line_edit: self._browse(k, le)
+                    )
+                    row_layout.addWidget(browse_btn)
+
+            self._inputs[key] = input_widget
+            self.form_layout.addRow(label, row_layout)
+
+    def _browse(self, key, line_edit):
+        """Open a file or directory browser based on the key name"""
+        current_path = line_edit.text()
+        if "dir" in key.lower():
+            path = QFileDialog.getExistingDirectory(self, f"Select {key}", current_path)
+        else:
+            path, _ = QFileDialog.getOpenFileName(
+                self, f"Select {key}", current_path, "All Files (*)"
+            )
+
+        if path:
+            line_edit.setText(path)
+
+    def accept(self):
+        """Save settings and close"""
+        if self._settings:
+            for key, widget in self._inputs.items():
+                if isinstance(widget, QCheckBox):
+                    self._settings.set_setting(key, widget.isChecked())
+                elif isinstance(widget, QLineEdit):
+                    self._settings.set_setting(key, widget.text())
+        super().accept()
 
 
 class AboutDialog(QDialog):
