@@ -4,6 +4,10 @@ from typing import List, Dict, Any, Optional
 import os
 
 from app.utils import get_portable_path
+from app.names import rarity as RARITY_MAP
+
+# Define rarity order for sorting
+RARITY_ORDER = {name: i for i, name in enumerate(RARITY_MAP.values())}
 
 
 class CardModel(QAbstractTableModel):
@@ -97,7 +101,9 @@ class CardModel(QAbstractTableModel):
                     item.get("card_name", "").lower(),
                 )
             elif column == 3:  # Rarity
-                return item.get("rarity", "").lower()
+                rarity_name = item.get("rarity", "")
+                # Return the index from RARITY_ORDER, or a high number if not found
+                return RARITY_ORDER.get(rarity_name, 999), rarity_name.lower()
             elif column == 4:  # Count
                 return item.get("count", 0)
             return ""
