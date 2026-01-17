@@ -12,6 +12,7 @@ import sys
 import os
 import logging
 import tomllib
+import json
 from PyQt6.QtWidgets import QMessageBox
 from PyQt6.QtCore import QSettings
 
@@ -139,6 +140,67 @@ def check_dependencies():
 
     logger.info("All dependencies are available")
     return True
+
+
+def record_removed_card(account: str, card_code: str):
+    """
+    Record a removed card in removed_cards.json
+
+    Args:
+        account: Account name
+        card_code: Card code
+    """
+    try:
+        file_path = get_portable_path("data", "removed_cards.json")
+        removed_cards = []
+
+        if os.path.exists(file_path):
+            with open(file_path, "r", encoding="utf-8") as f:
+                try:
+                    removed_cards = json.load(f)
+                except json.JSONDecodeError:
+                    logger.warning(f"Could not decode {file_path}, starting fresh")
+
+        removed_cards.append({"account": account, "card_code": card_code})
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(removed_cards, f, indent=4)
+
+        logger.info(f"Recorded removal: {card_code} from {account}")
+    except Exception as e:
+        logger.error(f"Failed to record removed card: {e}")
+
+
+def get_removed_cards() -> list:
+    """
+    Get the list of removed cards from removed_cards.json
+
+    Returns:
+        list: List of dicts with account and card_code
+    """
+    file_path = get_portable_path("data", "removed_cards.json")
+    if not os.path.exists(file_path):
+        return []
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to read removed cards: {e}")
+        return []
+
+
+def clear_removed_cards():
+    """
+    Clear the removed_cards.json file
+    """
+    file_path = get_portable_path("data", "removed_cards.json")
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+            logger.info(f"Cleared {file_path}")
+        except Exception as e:
+            logger.error(f"Failed to clear removed cards: {e}")
 
 
 class PortableSettings:

@@ -31,8 +31,9 @@ from PyQt6.QtCore import Qt, pyqtSignal, QThread, QSize
 from PyQt6.QtGui import QIcon, QValidator, QPixmap
 import os
 import csv
-from app.utils import get_app_version, SECTION_ORDER
-from typing import Optional, Dict, Any
+from datetime import datetime
+from app.utils import get_app_version, SECTION_ORDER, record_removed_card
+from typing import Optional, Dict, Any, Callable
 
 
 class IntValidator(QValidator):
@@ -548,7 +549,13 @@ class AboutDialog(QDialog):
 class CardImageDialog(QDialog):
     """Dialog for displaying a full-size card image"""
 
-    def __init__(self, image_path: str, card_name: str = "Card Image", parent=None):
+    def __init__(
+        self,
+        image_path: str,
+        card_name: str = "Card Image",
+        parent=None,
+        scale: float = 1.0,
+    ):
         super().__init__(parent)
         self.setWindowTitle(card_name)
 
@@ -561,6 +568,17 @@ class CardImageDialog(QDialog):
             # but reject() here might be fine if called after super().__init__
             self.reject()
             return
+
+        # Scale pixmap if requested
+        if scale != 1.0:
+            new_width = int(pixmap.width() * scale)
+            new_height = int(pixmap.height() * scale)
+            pixmap = pixmap.scaled(
+                new_width,
+                new_height,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
 
         # Set up UI
         layout = QVBoxLayout()
@@ -598,14 +616,26 @@ class CardImageDialog(QDialog):
 class AccountCardListDialog(QDialog):
     """Dialog showing a filterable list of accounts that have a specific card"""
 
-    def __init__(self, card_name: str, card_code: str, account_data: list, parent=None):
+    def __init__(
+        self,
+        card_name: str,
+        card_code: str,
+        account_data: list,
+        database=None,
+        on_removed: Callable = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self.setWindowTitle(f"Accounts owning {card_name}")
-        self.setMinimumSize(400, 500)
+        self.setMinimumSize(600, 500)
 
         self.card_name = card_name
         self.card_code = card_code
-        self.all_data = account_data  # List of (account_name, count)
+        self.all_data = (
+            account_data  # List of (account_name, count, screenshot_path, shinedust)
+        )
+        self.database = database
+        self.on_removed = on_removed
 
         self._setup_ui()
         self._populate_table(self.all_data)
@@ -631,10 +661,27 @@ class AccountCardListDialog(QDialog):
 
         # Table
         self.table = QTableWidget()
-        self.table.setColumnCount(2)
-        self.table.setHorizontalHeaderLabels(["Account Name", "Quantity"])
+        self.table.setColumnCount(6)
+        self.table.setHorizontalHeaderLabels(
+            ["Account Name", "Quantity", "Shinedust", "Age", "Screenshot", "Action"]
+        )
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            4, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.table.horizontalHeader().setSectionResizeMode(
+            5, QHeaderView.ResizeMode.ResizeToContents
         )
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -648,11 +695,122 @@ class AccountCardListDialog(QDialog):
     def _populate_table(self, data):
         """Populate table with data"""
         self.table.setRowCount(len(data))
-        for i, (account, count) in enumerate(data):
+        for i, row_data in enumerate(data):
+            account = row_data[0]
+            count = row_data[1]
+            screenshot_path = row_data[2] if len(row_data) > 2 else None
+            shinedust = row_data[3] if len(row_data) > 3 else None
+
             self.table.setItem(i, 0, QTableWidgetItem(str(account)))
             count_item = QTableWidgetItem(str(count))
             count_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(i, 1, count_item)
+
+            # Shinedust column
+            shinedust_val = (
+                str(shinedust) if shinedust and str(shinedust).strip() else "-"
+            )
+            shinedust_item = QTableWidgetItem(shinedust_val)
+            shinedust_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(i, 2, shinedust_item)
+
+            # Age column
+            age_val = "-"
+            try:
+                dt = datetime.strptime(str(account), "%Y%m%d%H%M%S")
+                now = datetime.now()
+                diff = now - dt
+                age_val = f"{diff.days}d"
+            except (ValueError, TypeError):
+                pass
+            age_item = QTableWidgetItem(age_val)
+            age_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(i, 3, age_item)
+
+            # Screenshot button
+            if screenshot_path:
+                screenshot_btn = QPushButton("Screenshot")
+                screenshot_btn.clicked.connect(
+                    lambda checked, p=screenshot_path: self._view_screenshot(p)
+                )
+                self.table.setCellWidget(i, 4, screenshot_btn)
+            else:
+                self.table.setItem(i, 4, QTableWidgetItem(""))
+
+            # Remove button
+            remove_button = QPushButton("Remove")
+            remove_button.clicked.connect(
+                lambda checked, a=account, p=screenshot_path: self._remove_card(a, p)
+            )
+            self.table.setCellWidget(i, 5, remove_button)
+
+    def _view_screenshot(self, path):
+        """Open the screenshot in a new window"""
+        if not path or not os.path.exists(path):
+            QMessageBox.warning(
+                self, "Error", f"The screenshot path could not be found:\n{path}"
+            )
+            return
+
+        dialog = CardImageDialog(path, f"{os.path.basename(path)}", self, scale=2.0)
+        dialog.exec()
+
+    def _remove_card(self, account_name, screenshot_path=None):
+        """Handle card removal from an account"""
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Remove Card?")
+        msg_box.setText(
+            f"One instance of <b>{self.card_name}</b> will be removed from account <b>{account_name}</b>.<br><br>"
+            "If the account has multiples of this same card, only one will be removed."
+        )
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+
+        if msg_box.exec() == QMessageBox.StandardButton.Yes:
+            if self.database:
+                # Try to use screenshot_path if available for more precise removal
+                if hasattr(self.database, "remove_card_from_account_precise"):
+                    success = self.database.remove_card_from_account_precise(
+                        self.card_code, account_name, screenshot_path
+                    )
+                else:
+                    success = self.database.remove_card_from_account(
+                        self.card_code, account_name
+                    )
+
+                if success:
+                    record_removed_card(account_name, self.card_code)
+
+                    # Update local data
+                    for i, row in enumerate(self.all_data):
+                        acc = row[0]
+                        count = row[1]
+                        spath = row[2] if len(row) > 2 else None
+
+                        # Match by account AND screenshot path if possible
+                        if acc == account_name and (
+                            screenshot_path is None or spath == screenshot_path
+                        ):
+                            if count > 1:
+                                self.all_data[i] = (acc, count - 1, spath)
+                            else:
+                                self.all_data.pop(i)
+                            break
+
+                    # Refresh table
+                    self._filter_data(self.search_input.text())
+
+                    # Notify callback
+                    if self.on_removed:
+                        self.on_removed()
+                else:
+                    QMessageBox.warning(
+                        self, "Error", "Could not remove card from database."
+                    )
+            else:
+                QMessageBox.warning(self, "Error", "Database not available.")
 
     def _filter_data(self, text):
         """Filter table data based on search text"""

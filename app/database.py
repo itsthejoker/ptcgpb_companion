@@ -14,6 +14,266 @@ from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
+CREATE_SCREENSHOT_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS screenshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT,
+        original_filename TEXT,
+        clean_filename TEXT,
+        account TEXT,
+        pack_type TEXT,
+        card_types TEXT,
+        card_counts TEXT,
+        pack_screenshot TEXT UNIQUE,
+        screenshot_path TEXT,
+        shinedust TEXT,
+        processed BOOLEAN DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+"""
+
+CREATE_CARD_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS cards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        card_name TEXT,
+        card_set TEXT,
+        card_code TEXT,
+        image_path TEXT,
+        rarity TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(card_code, card_set)
+    )
+"""
+
+CREATE_MIGRATIONS_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS migrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        migration_name TEXT UNIQUE,
+        applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        completed BOOLEAN DEFAULT 0
+    )
+"""
+
+SCREENSHOT_CARDS_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS screenshot_cards (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        screenshot_id INTEGER,
+        card_id INTEGER,
+        position INTEGER,
+        confidence REAL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (screenshot_id) REFERENCES screenshots(id),
+        FOREIGN KEY (card_id) REFERENCES cards(id),
+        UNIQUE(screenshot_id, card_id, position)
+    )
+"""
+
+CREATE_ACCOUNTS_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS accounts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_name TEXT UNIQUE,
+        shinedust TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+"""
+
+
+class Migration:
+    def __init__(self, migration_name: str, sql: str = None, message: str = None):
+        self.migration_name = migration_name
+        self.sql = sql
+        self.message = message
+
+    def __repr__(self):
+        return f"Migration('{self.migration_name}')"
+
+    def __eq__(self, other):
+        if isinstance(other, Migration):
+            return self.migration_name == other.migration_name
+        return False
+
+    def exists(self) -> bool:
+        conn = self.db._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM migrations WHERE migration_name = ?",
+                (self.migration_name,),
+            )
+            return cursor.fetchone() is not None
+        finally:
+            self.db._return_connection()
+
+    def mark_migration_complete(self):
+        conn = self.db._get_connection()
+        try:
+            cursor = conn.cursor()
+            # Migrations are unique, so if it exists in the db, that's all that we need
+            cursor.execute(
+                "INSERT OR REPLACE INTO migrations (migration_name, completed) VALUES (?, 1)",
+                (self.migration_name,),
+            )
+            self.db._commit(conn)
+        finally:
+            self.db._return_connection()
+
+    def get_cursor(self):
+        return self.db._get_connection().cursor()
+
+    def check_constraints(self) -> bool:
+        """Check if the migration can or should be applied. True is for go, False is for no-go"""
+        raise NotImplementedError
+
+    def migrate(self) -> bool:
+        conn = self.db._get_connection()
+        try:
+            cursor = conn.cursor()
+            if self.exists():
+                return False
+            if not self.check_constraints():
+                # If constraints say we don't need it but it's not in migrations table, mark it as complete
+                self.mark_migration_complete()
+                return False
+            cursor.execute(self.sql)
+            self.db._commit(conn)
+            self.mark_migration_complete()
+
+            logger.info(f"Applied migration: {self.migration_name}")
+            return True
+        finally:
+            self.db._return_connection()
+
+    def check_for_column_in_table(self, column: str, table: str) -> bool:
+        cursor = self.get_cursor()
+        cursor.execute(f"PRAGMA table_info({table})")
+        columns = [row[1] for row in cursor.fetchall()]
+        return column not in columns
+
+    def post_migration(self):
+        """Any code that should be run after all migrations have run."""
+        raise NotImplementedError
+
+
+class ScreenshotMigration(Migration):
+    def __init__(self, db: "Database"):
+        super().__init__("add_screenshot_path")
+        self.db = db
+        self.message = "Adding screenshot_path column to screenshots table"
+        self.sql = "ALTER TABLE screenshots ADD COLUMN screenshot_path TEXT"
+
+    def check_constraints(self):
+        return self.check_for_column_in_table("screenshot_path", "screenshots")
+
+
+class ShinedustMigration(Migration):
+    def __init__(self, db: "Database"):
+        super().__init__("add_shinedust_column")
+        self.db = db
+        self.message = "Adding shinedust column to screenshots table"
+        self.sql = "ALTER TABLE screenshots ADD COLUMN shinedust TEXT"
+
+    def check_constraints(self):
+        return self.check_for_column_in_table("shinedust", "screenshots")
+
+
+class CardCodeMigration(Migration):
+    def __init__(self, db: "Database"):
+        super().__init__("add_card_code_to_cards")
+        self.db = db
+        self.message = "Adding card_code column to cards table and recreating table for UNIQUE constraint"
+
+    def check_constraints(self):
+        return self.check_for_column_in_table("card_code", "cards")
+
+    def migrate(self) -> bool:
+        conn = self.db._get_connection()
+        try:
+            cursor = conn.cursor()
+            if self.exists():
+                return False
+            if not self.check_constraints():
+                return False
+
+            logger.info(self.message)
+
+            # SQLite doesn't support dropping/modifying UNIQUE constraints easily.
+            # The safest way is to recreate the table.
+            cursor.execute("ALTER TABLE cards RENAME TO cards_old")
+            cursor.execute(
+                """
+                CREATE TABLE cards (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    card_name TEXT,
+                    card_set TEXT,
+                    card_code TEXT,
+                    image_path TEXT,
+                    rarity TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(card_code, card_set)
+                )
+            """
+            )
+
+            # Copy data and try to infer card_code from image_path
+            cursor.execute(
+                "SELECT id, card_name, card_set, image_path, rarity, created_at FROM cards_old"
+            )
+            for row in cursor.fetchall():
+                cid, name, cset, img_path, rarity, created = row
+                # Infer code from image_path: "A2b/A2b_80.webp" -> "A2b_80"
+                code = None
+                if img_path:
+                    base = os.path.basename(img_path)
+                    code = os.path.splitext(base)[0]
+
+                if not code:
+                    code = f"{cset}_{name}"
+
+                cursor.execute(
+                    """
+                    INSERT INTO cards (id, card_name, card_set, card_code, image_path, rarity, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (cid, name, cset, code, img_path, rarity, created),
+                )
+
+            cursor.execute("DROP TABLE cards_old")
+            self.db._commit(conn)
+            self.mark_migration_complete()
+            logger.info(f"Applied migration: {self.migration_name}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to migrate cards table: {e}")
+            raise
+        finally:
+            self.db._return_connection()
+
+
+class AccountsMigration(Migration):
+    def __init__(self, db: "Database"):
+        super().__init__("create_accounts_table")
+        self.db = db
+        self.message = (
+            "Creating accounts table for storing account-level data like shinedust"
+        )
+        self.sql = CREATE_ACCOUNTS_TABLE_SQL
+
+    def check_constraints(self):
+        cursor = self.get_cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='accounts'"
+        )
+        return cursor.fetchone() is None
+
+
+MIGRATIONS = [
+    ScreenshotMigration,
+    ShinedustMigration,
+    CardCodeMigration,
+    AccountsMigration,
+]
+
 
 class Database:
     """
@@ -41,15 +301,32 @@ class Database:
 
         self.db_path = db_path
 
+        # Thread-local storage for database connections
+        # SQLite connections are thread-bound, so each thread must have its own connection
+        self.local_data = threading.local()
+
+        # Track if any migration was applied during this session
+        self.migration_applied = False
+
         # Only initialize the database once per path
         with Database._init_lock:
             if self.db_path not in Database._initialized_paths:
                 self._initialize_database()
+                self._migrate()
                 Database._initialized_paths.add(self.db_path)
 
-        # Thread-local storage for database connections
-        # SQLite connections are thread-bound, so each thread must have its own connection
-        self.local_data = threading.local()
+    def _migrate(self):
+        for migration_class in MIGRATIONS:
+            migration = migration_class(self)
+            if migration.migrate():
+                self.migration_applied = True
+
+        for migration_class in MIGRATIONS:
+            migration = migration_class(self)
+            try:
+                migration.post_migration()
+            except NotImplementedError:
+                pass
 
     @contextmanager
     def transaction(self):
@@ -99,96 +376,16 @@ class Database:
                 logger.warning("WAL mode not available, using default journal mode")
 
             # Create screenshots table
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS screenshots (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT,
-                    original_filename TEXT,
-                    clean_filename TEXT,
-                    account TEXT,
-                    pack_type TEXT,
-                    card_types TEXT,
-                    card_counts TEXT,
-                    pack_screenshot TEXT UNIQUE,
-                    shinedust TEXT,
-                    processed BOOLEAN DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """
-            )
+            cursor.execute(CREATE_SCREENSHOT_TABLE_SQL)
 
             # Create cards table
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cards (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    card_name TEXT,
-                    card_set TEXT,
-                    card_code TEXT,
-                    image_path TEXT,
-                    rarity TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(card_code, card_set)
-                )
-            """
-            )
+            cursor.execute(CREATE_CARD_TABLE_SQL)
 
-            # Check if card_code column exists in existing table
-            cursor.execute("PRAGMA table_info(cards)")
-            columns = [row[1] for row in cursor.fetchall()]
-            if "card_code" not in columns:
-                logger.info(
-                    "Migrating database: Adding card_code column to cards table"
-                )
-                try:
-                    # SQLite doesn't support dropping/modifying UNIQUE constraints easily.
-                    # The safest way is to recreate the table.
-                    cursor.execute("ALTER TABLE cards RENAME TO cards_old")
-                    cursor.execute(
-                        """
-                        CREATE TABLE cards (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            card_name TEXT,
-                            card_set TEXT,
-                            card_code TEXT,
-                            image_path TEXT,
-                            rarity TEXT,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            UNIQUE(card_code, card_set)
-                        )
-                    """
-                    )
+            # Create migrations table
+            cursor.execute(CREATE_MIGRATIONS_TABLE_SQL)
 
-                    # Copy data and try to infer card_code from image_path
-                    cursor.execute(
-                        "SELECT id, card_name, card_set, image_path, rarity, created_at FROM cards_old"
-                    )
-                    for row in cursor.fetchall():
-                        cid, name, cset, img_path, rarity, created = row
-                        # Infer code from image_path: "A2b/A2b_80.webp" -> "A2b_80"
-                        code = None
-                        if img_path:
-                            base = os.path.basename(img_path)
-                            code = os.path.splitext(base)[0]
-
-                        if not code:
-                            code = f"{cset}_{name}"
-
-                        cursor.execute(
-                            """
-                            INSERT INTO cards (id, card_name, card_set, card_code, image_path, rarity, created_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """,
-                            (cid, name, cset, code, img_path, rarity, created),
-                        )
-
-                    cursor.execute("DROP TABLE cards_old")
-                    logger.info("Database migration: cards table updated successfully")
-                except Exception as e:
-                    logger.error(f"Failed to migrate cards table: {e}")
-                    # Try to recover by renaming back if possible, but rename might fail if new table exists
-                    raise
+            # Create accounts table
+            cursor.execute(CREATE_ACCOUNTS_TABLE_SQL)
 
             # Create index for faster searches (only for tables that exist)
             cursor.execute(
@@ -216,21 +413,7 @@ class Database:
             conn.commit()
 
             # Create screenshot_cards junction table
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS screenshot_cards (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    screenshot_id INTEGER,
-                    card_id INTEGER,
-                    position INTEGER,
-                    confidence REAL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (screenshot_id) REFERENCES screenshots(id),
-                    FOREIGN KEY (card_id) REFERENCES cards(id),
-                    UNIQUE(screenshot_id, card_id, position)
-                )
-            """
-            )
+            cursor.execute(SCREENSHOT_CARDS_TABLE_SQL)
 
             # Create index for screenshot_cards table
             cursor.execute(
@@ -285,7 +468,9 @@ class Database:
                         card_types = CASE WHEN card_types = '' THEN ? ELSE card_types END,
                         card_counts = CASE WHEN card_counts = '0' OR card_counts = '' OR card_counts IS NULL THEN ? ELSE card_counts END,
                         account = CASE WHEN account = 'Account Unknown' OR account = 'Default' OR account = '' OR account LIKE '%.png' OR account LIKE '%.jpg' THEN ? ELSE account END,
-                        clean_filename = CASE WHEN clean_filename = 'Account Unknown' OR clean_filename = 'Default' OR clean_filename = '' OR clean_filename LIKE '%.png' OR clean_filename LIKE '%.jpg' THEN ? ELSE clean_filename END
+                        clean_filename = CASE WHEN clean_filename = 'Account Unknown' OR clean_filename = 'Default' OR clean_filename = '' OR clean_filename LIKE '%.png' OR clean_filename LIKE '%.jpg' THEN ? ELSE clean_filename END,
+                        screenshot_path = CASE WHEN screenshot_path IS NULL OR screenshot_path = '' THEN ? ELSE screenshot_path END,
+                        shinedust = COALESCE(NULLIF(?, ''), shinedust)
                     WHERE id = ?
                 """,
                     (
@@ -294,18 +479,26 @@ class Database:
                         data["CardCounts"],
                         account,
                         data.get("CleanFilename", account),
+                        data.get("ScreenshotPath"),
+                        data.get("Shinedust"),
                         screenshot_id,
                     ),
                 )
                 self._commit(conn)
+
+                # Also update accounts table
+                if data.get("Shinedust"):
+                    self.update_account_shinedust(account, data["Shinedust"])
+
                 return screenshot_id, False  # Return existing ID and False for is_new
 
             cursor.execute(
                 """
                 INSERT INTO screenshots (
                     timestamp, original_filename, clean_filename, account,
-                    pack_type, card_types, card_counts, pack_screenshot, shinedust
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    pack_type, card_types, card_counts, pack_screenshot,
+                    screenshot_path, shinedust
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     data["Timestamp"],
@@ -316,15 +509,81 @@ class Database:
                     data["CardTypes"],
                     data["CardCounts"],
                     data["PackScreenshot"],
+                    data.get("ScreenshotPath"),
                     data["Shinedust"],
                 ),
             )
 
             self._commit(conn)
+
+            # Also update accounts table
+            if data.get("Shinedust"):
+                self.update_account_shinedust(account, data["Shinedust"])
+
             return cursor.lastrowid, True  # Return new ID and True for is_new
 
         except Exception as e:
             logger.error(f"Error adding screenshot: {e}")
+            raise
+        finally:
+            self._return_connection()
+
+    def update_account_shinedust(self, account_name: str, shinedust: str) -> None:
+        """
+        Update the shinedust amount for an account in the accounts table.
+
+        Args:
+            account_name: Name of the account
+            shinedust: Shinedust amount
+        """
+        if not account_name or account_name == "Account Unknown":
+            return
+
+        if not shinedust or not str(shinedust).strip():
+            return
+
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            # We use INSERT OR REPLACE to update the shinedust for the account
+            cursor.execute(
+                """
+                INSERT INTO accounts (account_name, shinedust) 
+                VALUES (?, ?) 
+                ON CONFLICT(account_name) DO UPDATE SET 
+                    shinedust = excluded.shinedust 
+                WHERE excluded.shinedust IS NOT NULL AND excluded.shinedust != ''
+            """,
+                (account_name, shinedust),
+            )
+            self._commit(conn)
+        except sqlite3.OperationalError as e:
+            # Handle older SQLite versions that don't support ON CONFLICT
+            if "syntax error" in str(e).lower() and "ON CONFLICT" in str(e):
+                # Fallback to manual check and update
+                pass
+            else:
+                # If it's another operational error, re-raise
+                raise
+
+            # Manual fallback
+            cursor.execute(
+                "SELECT id FROM accounts WHERE account_name = ?", (account_name,)
+            )
+            existing = cursor.fetchone()
+            if existing:
+                cursor.execute(
+                    "UPDATE accounts SET shinedust = ? WHERE account_name = ?",
+                    (shinedust, account_name),
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO accounts (account_name, shinedust) VALUES (?, ?)",
+                    (account_name, shinedust),
+                )
+            self._commit(conn)
+        except Exception as e:
+            logger.error(f"Error updating account shinedust: {e}")
             raise
         finally:
             self._return_connection()
@@ -631,7 +890,7 @@ class Database:
             card_code: Card code in format NAME_SET
 
         Returns:
-            List[tuple]: List of tuples containing (account_name, count)
+            List[tuple]: List of tuples containing (account_name, count, screenshot_path, shinedust)
         """
         conn = self._get_connection()
         try:
@@ -640,17 +899,98 @@ class Database:
             query = """
                 SELECT 
                     s.account,
-                    COUNT(sc.id) as card_count
+                    COUNT(sc.id) as card_count,
+                    s.screenshot_path,
+                    COALESCE(NULLIF(a.shinedust, ''), s.shinedust) as shinedust
                 FROM screenshots s
                 JOIN screenshot_cards sc ON s.id = sc.screenshot_id
                 JOIN cards c ON sc.card_id = c.id
+                LEFT JOIN accounts a ON s.account = a.account_name
                 WHERE c.card_code = ?
-                GROUP BY s.account
+                GROUP BY s.account, s.screenshot_path, a.shinedust, s.shinedust
                 ORDER BY card_count DESC, s.account ASC
             """
 
             cursor.execute(query, (card_code,))
             return cursor.fetchall()
+        finally:
+            self._return_connection()
+
+    def remove_card_from_account(self, card_code: str, account_name: str) -> bool:
+        """
+        Remove one instance of a card from an account.
+
+        Args:
+            card_code: Card code
+            account_name: Account name
+
+        Returns:
+            bool: True if a card was removed, False otherwise
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            # Find one screenshot_cards entry to delete
+            query = """
+                DELETE FROM screenshot_cards 
+                WHERE id = (
+                    SELECT sc.id 
+                    FROM screenshot_cards sc
+                    JOIN screenshots s ON sc.screenshot_id = s.id
+                    JOIN cards c ON sc.card_id = c.id
+                    WHERE s.account = ? AND c.card_code = ?
+                    LIMIT 1
+                )
+            """
+            cursor.execute(query, (account_name, card_code))
+            removed = cursor.rowcount > 0
+            if removed:
+                self._commit(conn)
+            return removed
+        finally:
+            self._return_connection()
+
+    def remove_card_from_account_precise(
+        self, card_code: str, account_name: str, screenshot_path: str = None
+    ) -> bool:
+        """
+        Remove one instance of a card from an account, optionally from a specific screenshot.
+
+        Args:
+            card_code: The card code to remove
+            account_name: The account to remove it from
+            screenshot_path: Optional path to the screenshot to remove from
+
+        Returns:
+            bool: True if a card was removed, False otherwise
+        """
+        if not screenshot_path:
+            return self.remove_card_from_account(card_code, account_name)
+
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+
+            # Find one instance of this card for this account and screenshot
+            query = """
+                DELETE FROM screenshot_cards 
+                WHERE id = (
+                    SELECT sc.id 
+                    FROM screenshot_cards sc
+                    JOIN screenshots s ON sc.screenshot_id = s.id
+                    JOIN cards c ON sc.card_id = c.id
+                    WHERE s.account = ? AND c.card_code = ? AND s.screenshot_path = ?
+                    LIMIT 1
+                )
+            """
+            cursor.execute(query, (account_name, card_code, screenshot_path))
+            removed = cursor.rowcount > 0
+            if removed:
+                self._commit(conn)
+                return True
+
+            # Fallback to general removal if path-specific fails (e.g. if path was updated)
+            return self.remove_card_from_account(card_code, account_name)
         finally:
             self._return_connection()
 

@@ -43,11 +43,18 @@ class WorkerSignals(QObject):
 class CSVImportWorker(QRunnable):
     """Worker for importing CSV files in the background"""
 
-    def __init__(self, file_path: str, task_id: str = None, db_path: str = None):
+    def __init__(
+        self,
+        file_path: str,
+        task_id: str = None,
+        db_path: str = None,
+        screenshots_dir: str = None,
+    ):
         super().__init__()
         self.file_path = file_path
         self.task_id = task_id
         self.db_path = db_path
+        self.screenshots_dir = screenshots_dir
         self.signals = WorkerSignals()
         self._is_cancelled = False
 
@@ -101,6 +108,15 @@ class CSVImportWorker(QRunnable):
                         if self._is_cancelled:
                             break
 
+                        # Normalize keys to handle case-insensitivity
+                        row = {k: v for k, v in row.items() if k is not None}
+
+                        # Map alternative column names
+                        if "shinedust" in row and "Shinedust" not in row:
+                            row["Shinedust"] = row["shinedust"]
+                        elif "ShineDust" in row and "Shinedust" not in row:
+                            row["Shinedust"] = row["ShineDust"]
+
                         # Use CleanFilename as the Account
                         if "CleanFilename" in row and row["CleanFilename"]:
                             row["Account"] = row["CleanFilename"]
@@ -125,11 +141,24 @@ class CSVImportWorker(QRunnable):
                             if field not in row:
                                 row[field] = ""
 
+                        # Populate ScreenshotPath if possible
+                        if self.screenshots_dir and row.get("PackScreenshot"):
+                            row["ScreenshotPath"] = os.path.join(
+                                self.screenshots_dir, row["PackScreenshot"]
+                            )
+
                         # Add to database
                         try:
-                            _, is_new = db.add_screenshot(row)
-                            if is_new:
-                                new_records += 1
+                            if not row.get("PackScreenshot"):
+                                # This is likely a summary row (Shinedust only)
+                                if row.get("Shinedust") and row.get("Account"):
+                                    db.update_account_shinedust(
+                                        row["Account"], row["Shinedust"]
+                                    )
+                            else:
+                                _, is_new = db.add_screenshot(row)
+                                if is_new:
+                                    new_records += 1
                         except Exception as e:
                             logger.error(f"Error importing row: {e}")
 
@@ -497,7 +526,9 @@ class ScreenshotProcessingWorker(QRunnable):
                             f"Blank image detected ({file_size} bytes) in {filename}. Marking as processed."
                         )
                         # Reuse storage routine with no detected cards
-                        self._store_results_in_database(filename, [])
+                        self._store_results_in_database(
+                            filename, [], full_path=file_path
+                        )
                         # Do not count as "with results" but it's successfully handled
                         return False
 
@@ -506,7 +537,9 @@ class ScreenshotProcessingWorker(QRunnable):
 
                     # Store results in database
                     if cards_found:
-                        self._store_results_in_database(filename, cards_found)
+                        self._store_results_in_database(
+                            filename, cards_found, full_path=file_path
+                        )
                         return True
                     else:
                         logger.info(f"No cards detected in {filename}")
@@ -627,7 +660,9 @@ class ScreenshotProcessingWorker(QRunnable):
             logger.error(f"Error identifying set: {e}")
             return "Unknown"
 
-    def _store_results_in_database(self, filename: str, cards_found: list):
+    def _store_results_in_database(
+        self, filename: str, cards_found: list, full_path: str = None
+    ):
         """Store processing results in the database"""
         max_retries = 5
         retry_delay = 1.0  # seconds
@@ -655,7 +690,8 @@ class ScreenshotProcessingWorker(QRunnable):
                     "CardTypes": ", ".join([card["card_name"] for card in cards_found]),
                     "CardCounts": str(len(cards_found)),
                     "PackScreenshot": filename,  # Use filename as unique key for screenshot
-                    "Shinedust": "0",
+                    "ScreenshotPath": full_path,
+                    "Shinedust": "",
                 }
 
                 with db.transaction():

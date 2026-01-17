@@ -59,7 +59,13 @@ from app.workers import (
 )
 from PyQt6.QtCore import QThreadPool, Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
-from app.utils import PortableSettings, get_portable_path, get_app_version
+from app.utils import (
+    PortableSettings,
+    get_portable_path,
+    get_app_version,
+    get_removed_cards,
+    clear_removed_cards,
+)
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
@@ -233,6 +239,18 @@ class MainWindow(QMainWindow):
 
             self.db = Database()
             logger.info("Database initialized successfully")
+
+            # If migration was applied, trigger a CSV re-import to fill the new columns
+            if self.db.migration_applied:
+                logger.info("Migration applied, triggering automatic CSV re-import")
+                csv_path = self.settings.get_setting("General/csv_import_path", "")
+                if csv_path and os.path.exists(csv_path):
+                    # Use a small delay to ensure everything is ready
+                    QTimer.singleShot(1000, lambda: self._on_csv_imported(csv_path))
+                else:
+                    logger.warning(
+                        "Migration applied but no CSV path found in settings for re-import"
+                    )
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
             # Show error message to user
@@ -302,6 +320,11 @@ class MainWindow(QMainWindow):
         self.load_new_data_action.triggered.connect(self._on_load_new_data)
         self.load_new_data_action.setEnabled(False)
         file_menu.addAction(self.load_new_data_action)
+
+        # Process Removed Cards action
+        process_removed_action = QAction("Process &Removed Cards", self)
+        process_removed_action.triggered.connect(self._on_process_removed_cards)
+        file_menu.addAction(process_removed_action)
 
         # Preferences action
         preferences_action = QAction("&Preferences", self)
@@ -1177,7 +1200,12 @@ class MainWindow(QMainWindow):
 
                 if account_data:
                     dialog = AccountCardListDialog(
-                        card_name, card_code, account_data, self
+                        card_name,
+                        card_code,
+                        account_data,
+                        database=self.db,
+                        on_removed=self._refresh_after_removal,
+                        parent=self,
                     )
                     dialog.show()
                 else:
@@ -1556,8 +1584,12 @@ class MainWindow(QMainWindow):
                 self._combined_import_request["csv_task_id"] = task_id
 
             # Create worker for CSV import
+            screenshots_dir = self.settings.get_setting("General/screenshots_dir", "")
             worker = CSVImportWorker(
-                file_path=file_path, task_id=task_id, db_path=self.db.db_path
+                file_path=file_path,
+                task_id=task_id,
+                db_path=self.db.db_path,
+                screenshots_dir=screenshots_dir,
             )
 
             # Connect signals with task_id and worker
@@ -2167,3 +2199,44 @@ class MainWindow(QMainWindow):
                 display_rarity = rarity_code
 
         return display_name, display_rarity
+
+    def _refresh_after_removal(self):
+        """Refresh data after a card is removed"""
+        self._refresh_cards_tab()
+        self._request_dashboard_update()
+
+    def _on_process_removed_cards(self):
+        """Handle 'Process Removed Cards' menu action"""
+        removed_cards = get_removed_cards()
+        if not removed_cards:
+            QMessageBox.information(self, "No Removed Cards", "No cards to process.")
+            return
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Process Removed Cards?")
+        msg_box.setText(
+            f"This will process <b>{len(removed_cards)}</b> recorded card removals from the database.<br><br>"
+            "This is useful if you have re-imported screenshots that might have brought back cards you previously removed."
+        )
+        msg_box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+
+        if msg_box.exec() == QMessageBox.StandardButton.Yes:
+            processed_count = 0
+            for item in removed_cards:
+                account = item.get("account")
+                card_code = item.get("card_code")
+                if account and card_code:
+                    if self.db.remove_card_from_account(card_code, account):
+                        processed_count += 1
+
+            QMessageBox.information(
+                self,
+                "Process Complete",
+                f"Processed {len(removed_cards)} records. {processed_count} cards were actually found and removed.",
+            )
+
+            if processed_count > 0:
+                self._refresh_after_removal()
