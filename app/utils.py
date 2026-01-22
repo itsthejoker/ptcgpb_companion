@@ -79,19 +79,6 @@ def initialize_data_directory():
     # Initialize settings and ensure defaults are set
     PortableSettings()
 
-    # Initialize database if it doesn't exist
-    # db_path = os.path.join(data_dir, "cardcounter.db")
-    # if not os.path.exists(db_path):
-    #     from app.database import Database
-    #
-    #     try:
-    #         db = Database(db_path)
-    #         db._initialize_database()
-    #         logger.info(f"Initialized new database at {db_path}")
-    #     except Exception as e:
-    #         logger.error(f"Failed to initialize database: {e}")
-    #         raise
-
 
 def check_dependencies():
     """
