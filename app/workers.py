@@ -401,7 +401,7 @@ class CardArtDownloadWorker(QRunnable):
                     "Downloading card art for %1 sets using %2 threads…",
                 )
                 .replace("%1", str(len(set_ids)))
-                .replace("%2", self.max_workers)
+                .replace("%2", str(self.max_workers))
             )
 
             def download_set(set_id: str) -> int:
@@ -680,7 +680,7 @@ class ScreenshotProcessingWorker(QRunnable):
                 QCoreApplication.translate(
                     "ScreenshotProcessingWorker",
                     "Found %1 images to process. Loading workers...",
-                ).replace("%1", total_files)
+                ).replace("%1", str(total_files))
             )
 
             # Initialize image processor
@@ -697,7 +697,7 @@ class ScreenshotProcessingWorker(QRunnable):
                     self.signals.status.emit(
                         QCoreApplication.translate(
                             "ScreenshotProcessingWorker", "Loaded %1 card templates"
-                        ).replace("%1", processor.get_template_count())
+                        ).replace("%1", str(processor.get_template_count()))
                     )
                 else:
                     self.signals.status.emit(
@@ -1117,7 +1117,7 @@ class DatabaseBackupWorker(QRunnable):
                 self.signals.status.emit(
                     QCoreApplication.translate(
                         "DatabaseBackupWorker", "Backup progress: %1%"
-                    ).replace("%1", progress)
+                    ).replace("%1", str(progress))
                 )
                 time.sleep(0.2)
 
