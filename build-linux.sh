@@ -52,6 +52,7 @@ ADD_DATA=(
   "_internal/ptcgpb-companion-icon.ico:."
   "pyproject.toml:."
   "app/translations/*.qm:app/translations"
+  "app/db/migrations/*:app/db/migrations"
 )
 
 for spec in "${ADD_DATA[@]}"; do
