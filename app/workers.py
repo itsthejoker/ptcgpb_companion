@@ -835,7 +835,7 @@ class ScreenshotProcessingWorker(QRunnable):
                                 "Processed %1 of %2 images",
                             )
                             .replace("%1", str(processed_count))
-                            .replace("21", str(total_files))
+                            .replace("%2", str(total_files))
                         )
             finally:
                 # Ensure executor threads are cleaned up appropriately
