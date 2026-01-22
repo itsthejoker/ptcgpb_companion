@@ -615,16 +615,12 @@ class AboutDialog(QDialog):
 
         # Application info
         version = get_app_version()
-        info_label = QLabel(
-            self.tr(
-                """<h2>PTCGPB Companion</h2>
+        info_label = QLabel(self.tr("""<h2>PTCGPB Companion</h2>
                <p>Pokémon Card Identification Tool</p>
                <p>Version %1</p>
                <p>© 2026 itsthejoker</p>
                <p>MIT License & open source. Made with 🌯.<br><a href="https://github.com/itsthejoker/ptcgpb_companion">https://github.com/itsthejoker/ptcgpb-companion</a></p>
-               <p>Built with PyQt6 and OpenCV</p><p></p>"""
-            ).replace("%1", version)
-        )
+               <p>Built with PyQt6 and OpenCV</p><p></p>""").replace("%1", version))
         info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(info_label)
 
@@ -779,7 +775,9 @@ class AccountCardListDialog(QDialog):
 
         # Header info
         info_label = QLabel(
-            self.tr("Showing account distribution for: <b>%1</b>").replace("%1", self.card_name)
+            self.tr("Showing account distribution for: <b>%1</b>").replace(
+                "%1", self.card_name
+            )
         )
         layout.addWidget(info_label)
 
@@ -905,8 +903,8 @@ class AccountCardListDialog(QDialog):
             QMessageBox.warning(
                 self,
                 self.tr("Error"),
-                self.tr("The screenshot path could not be found:\n%1").replace("%1", 
-                    resolved_path or path
+                self.tr("The screenshot path could not be found:\n%1").replace(
+                    "%1", resolved_path or path
                 ),
             )
             return
@@ -936,8 +934,8 @@ class AccountCardListDialog(QDialog):
             msg = QMessageBox(self)
             msg.setWindowTitle(self.tr("Select Shinedust Cost"))
             msg.setText(
-                self.tr("Is this a 4,000 or 10,000 shinedust move for %1?").replace("%1", 
-                    self.card_name
+                self.tr("Is this a 4,000 or 10,000 shinedust move for %1?").replace(
+                    "%1", self.card_name
                 )
             )
             btn4k = msg.addButton("4,000", QMessageBox.ButtonRole.ActionRole)
@@ -955,8 +953,8 @@ class AccountCardListDialog(QDialog):
             msg = QMessageBox(self)
             msg.setWindowTitle(self.tr("Select Shinedust Cost"))
             msg.setText(
-                self.tr("Is this a 25,000 or 30,000 shinedust move for %1?").replace("%1", 
-                    self.card_name
+                self.tr("Is this a 25,000 or 30,000 shinedust move for %1?").replace(
+                    "%1", self.card_name
                 )
             )
             btn25k = msg.addButton("25,000", QMessageBox.ButtonRole.ActionRole)
