@@ -1103,51 +1103,40 @@ class MainWindow(QMainWindow):
         """Apply current filters to the card data"""
         try:
             # Get current filter values
-            set_filter = self.set_filter.currentText()
-            rarity_filter = self.rarity_filter.currentText()
+            set_filter = self.set_filter.currentText().lower()
+            rarity_filter = self.rarity_filter.currentText().lower()
             search_text = self.search_box.text().strip().lower()
 
-            # Get all cards
             all_cards = getattr(self, "all_card_data", [])
+            all_cards_count = len(all_cards)
 
-            # Apply filters
-            filtered_cards = []
-            for card in all_cards:
-                # Apply set filter
-                if (
-                    set_filter != self.tr("All Sets")
-                    and card.get("set_name") != set_filter
-                ):
-                    continue
+            if set_filter != self.tr("All Sets").lower():
+                all_cards = [
+                    obj
+                    for obj in all_cards
+                    if obj.get("set_name").lower() == set_filter
+                ]
 
-                # Apply rarity filter
-                if (
-                    rarity_filter != self.tr("All Rarities")
-                    and card.get("rarity") != rarity_filter
-                ):
-                    continue
+            if rarity_filter != self.tr("All Rarities").lower():
+                all_cards = [
+                    obj
+                    for obj in all_cards
+                    if obj.get("rarity").lower() == rarity_filter
+                ]
 
-                # Apply search filter
-                if search_text:
-                    card_name = (card.get("card_name") or "").lower()
-                    set_name = (card.get("set_name") or "").lower()
-                    rarity = (card.get("rarity") or "").lower()
-
-                    if (
-                        search_text not in card_name
-                        and search_text not in set_name
-                        and search_text not in rarity
-                    ):
-                        continue
-
-                filtered_cards.append(card)
+            if search_text:
+                all_cards = [
+                    obj
+                    for obj in all_cards
+                    if search_text in obj.get("card_name", "").lower()
+                ]
 
             # Update model with filtered data
-            self.card_model.update_data(filtered_cards)
+            self.card_model.update_data(all_cards)
             self._update_status_message(
                 self.tr("Showing %1 of %2 unique cards")
-                .replace("%1", str(len(filtered_cards)))
-                .replace("%2", str(len(all_cards)))
+                .replace("%1", str(len(all_cards)))
+                .replace("%2", str(all_cards_count))
             )
 
         except Exception as e:
