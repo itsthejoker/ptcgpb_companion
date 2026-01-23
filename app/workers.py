@@ -14,6 +14,12 @@ import time
 import logging
 import threading
 
+
+def _set_thread_daemon():
+    """Helper to set the current thread as daemon"""
+    threading.current_thread().daemon = True
+
+
 from django.db.models import Count
 
 from app.utils import PortableSettings, clean_card_name
@@ -308,6 +314,7 @@ class CardArtDownloadWorker(QRunnable):
         card_url_template: str = None,
         max_workers: int = None,
         task_id: str = None,
+        set_ids: List[str] = None,
     ):
         super().__init__()
         self.signals = WorkerSignals()
@@ -318,6 +325,7 @@ class CardArtDownloadWorker(QRunnable):
         )
         self.max_workers = max_workers or get_max_thread_count()
         self.task_id = task_id
+        self.set_ids = set_ids
 
         logger_name = f"{__name__}.{self.__class__.__name__}"
         if self.task_id:
@@ -333,6 +341,21 @@ class CardArtDownloadWorker(QRunnable):
                 executor.shutdown(wait=False, cancel_futures=True)
             except Exception:
                 pass
+
+    @staticmethod
+    def fetch_online_set_ids(
+        base_list_url: str = "https://pocket.limitlesstcg.com/cards",
+    ) -> List[str]:
+        """Fetch the list of set IDs from the online listing page"""
+        import httpx
+        import re
+
+        resp = httpx.get(base_list_url, timeout=30.0)
+        resp.raise_for_status()
+        html = resp.text or ""
+        # matches href="/cards/<set_id>"
+        matches = re.findall(r'href\s*=\s*"/cards/([^"]+)"', html)
+        return sorted(list(set(m for m in matches if m)))
 
     def run(self):
         try:
@@ -356,35 +379,32 @@ class CardArtDownloadWorker(QRunnable):
 
             rarity = dict(zip(Card.Rarity.values, Card.Rarity.labels))
 
-            self.signals.status.emit(
-                QCoreApplication.translate(
-                    "CardArtDownloadWorker", "Fetching card set list…"
-                )
-            )
-
-            # Fetch list of set IDs
-            try:
-                resp = httpx.get(self.base_list_url, timeout=30.0)
-                resp.raise_for_status()
-            except Exception as e:
-                raise RuntimeError(
+            if self.set_ids:
+                set_ids = self.set_ids
+            else:
+                self.signals.status.emit(
                     QCoreApplication.translate(
-                        "CardArtDownloadWorker", "Failed to fetch set list: %1"
-                    ).replace("%1", str(e))
-                )
-
-            # Parse set IDs using regex to avoid external parser dependency
-            html = resp.text or ""
-            # matches href="/cards/<set_id>"
-            matches = re.findall(r'href\s*=\s*"/cards/([^"]+)"', html)
-            set_ids = sorted(list(set(m for m in matches if m)))
-
-            if not set_ids:
-                raise RuntimeError(
-                    QCoreApplication.translate(
-                        "CardArtDownloadWorker", "No set IDs found on the listing page"
+                        "CardArtDownloadWorker", "Fetching card set list…"
                     )
                 )
+
+                # Fetch list of set IDs
+                try:
+                    set_ids = self.fetch_online_set_ids(self.base_list_url)
+                except Exception as e:
+                    raise RuntimeError(
+                        QCoreApplication.translate(
+                            "CardArtDownloadWorker", "Failed to fetch set list: %1"
+                        ).replace("%1", str(e))
+                    )
+
+                if not set_ids:
+                    raise RuntimeError(
+                        QCoreApplication.translate(
+                            "CardArtDownloadWorker",
+                            "No set IDs found on the listing page",
+                        )
+                    )
 
             # Ensure per-set directories
             for set_id in set_ids:
@@ -482,6 +502,7 @@ class CardArtDownloadWorker(QRunnable):
             self._executor = ThreadPoolExecutor(
                 max_workers=self.max_workers,
                 thread_name_prefix=f"ArtDL-{self.task_id or 'pool'}",
+                initializer=_set_thread_daemon,
             )
             try:
                 futures = {
@@ -794,6 +815,7 @@ class ScreenshotProcessingWorker(QRunnable):
             self._executor = ThreadPoolExecutor(
                 max_workers=max_workers,
                 thread_name_prefix=f"ImgProc-{self.task_id or 'pool'}",
+                initializer=_set_thread_daemon,
             )
             try:
                 # Submit all tasks
@@ -1263,15 +1285,23 @@ class VersionCheckWorker(QRunnable):
         self.current_version = current_version
         self.task_id = task_id
         self.signals = WorkerSignals()
+        self._is_cancelled = False
 
         logger_name = f"{__name__}.{self.__class__.__name__}"
         if self.task_id:
             logger_name += f".{self.task_id}"
         self.logger = logging.getLogger(logger_name)
 
+    def cancel(self):
+        """Cancel the worker"""
+        self._is_cancelled = True
+
     def run(self):
         """Check GitHub API for the latest release"""
         try:
+            if self._is_cancelled:
+                return
+
             import httpx
 
             # GitHub API for latest release
@@ -1279,7 +1309,13 @@ class VersionCheckWorker(QRunnable):
             # Using a custom User-Agent as required by GitHub API
             headers = {"User-Agent": "ptcgpb-companion-version-check"}
 
-            response = httpx.get(url, follow_redirects=True, headers=headers)
+            response = httpx.get(
+                url, follow_redirects=True, headers=headers, timeout=10.0
+            )
+
+            if self._is_cancelled:
+                return
+
             if response.status_code == 200:
                 data = response.json()
                 latest_tag = data.get("tag_name", "")
@@ -1317,15 +1353,23 @@ class DashboardStatsWorker(QRunnable):
         self.activity_limit = activity_limit
         self.task_id = task_id
         self.signals = WorkerSignals()
+        self._is_cancelled = False
 
         logger_name = f"{__name__}.{self.__class__.__name__}"
         if self.task_id:
             logger_name += f".{self.task_id}"
         self.logger = logging.getLogger(logger_name)
 
+    def cancel(self):
+        """Cancel the worker"""
+        self._is_cancelled = True
+
     def run(self):
         """Load statistics and activity from database"""
         try:
+            if self._is_cancelled:
+                return
+
             from app.db.models import Account, Screenshot, ScreenshotCard
             from django.utils.timezone import now
 
@@ -1336,6 +1380,9 @@ class DashboardStatsWorker(QRunnable):
             )
             total_packs = Screenshot.objects.count()
 
+            if self._is_cancelled:
+                return
+
             try:
                 last_processed = (
                     Screenshot.objects.filter(processed=True)
@@ -1345,12 +1392,18 @@ class DashboardStatsWorker(QRunnable):
             except Screenshot.DoesNotExist:
                 last_processed = None
 
+            if self._is_cancelled:
+                return
+
             # Get recent activity
             recent_screenshots = Screenshot.objects.filter(processed=True).order_by(
                 "-created_at"
             )[: self.activity_limit]
             recent_activity = []
             for ss in recent_screenshots:
+                if self._is_cancelled:
+                    return
+
                 # Get card names as a list to avoid issues with QuerySet evaluation in join
                 card_names = list(
                     ss.screenshotcard_set.values_list("card__name", flat=True)

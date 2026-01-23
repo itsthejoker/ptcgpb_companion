@@ -215,6 +215,78 @@ class MainWindow(QMainWindow):
                 # Mark task running and update dashboard counters
                 self._update_task_status(task_id, "Running")
                 self._request_dashboard_update()
+            else:
+                # Check for missing sets among existing folders
+                try:
+                    # Fetch online set list to compare with local folders
+                    online_set_ids = CardArtDownloadWorker.fetch_online_set_ids()
+
+                    if not online_set_ids:
+                        return
+
+                    # Find sets that don't have a folder yet
+                    existing_sets = [
+                        d
+                        for d in os.listdir(template_dir)
+                        if os.path.isdir(template_dir / d)
+                    ]
+                    missing_sets = [
+                        sid for sid in online_set_ids if sid not in existing_sets
+                    ]
+
+                    if missing_sets:
+                        logger.info(
+                            f"Detected {len(missing_sets)} missing card art sets: {', '.join(missing_sets)}"
+                        )
+
+                        # Print to activity log
+                        for set_id in missing_sets:
+                            self.recent_activity_messages.append(
+                                {
+                                    "timestamp": datetime.now().strftime(
+                                        "%Y-%m-%d %H:%M:%S"
+                                    ),
+                                    "description": f"Missing card art for {set_id}. Starting background download...",
+                                }
+                            )
+                        self._update_recent_activity()
+
+                        # Start worker for these specific sets
+                        task_id = get_task_id()
+                        self._add_processing_task(
+                            task_id, f"Card Art Download ({len(missing_sets)} sets)"
+                        )
+
+                        worker = CardArtDownloadWorker(set_ids=missing_sets)
+                        worker.task_id = task_id
+
+                        # Connect signals
+                        worker.signals.progress.connect(
+                            lambda c, t, tid=task_id: self._on_art_download_progress(
+                                c, t, tid
+                            )
+                        )
+                        worker.signals.status.connect(
+                            lambda s, tid=task_id: self._on_art_download_status(s, tid)
+                        )
+                        worker.signals.result.connect(
+                            lambda r, tid=task_id: self._on_art_download_result(r, tid)
+                        )
+                        worker.signals.error.connect(
+                            lambda e, tid=task_id: self._on_art_download_error(e, tid)
+                        )
+                        worker.signals.finished.connect(
+                            lambda w=worker, tid=task_id: self._on_art_download_finished(
+                                w, tid
+                            )
+                        )
+
+                        self.active_workers.append(worker)
+                        self.thread_pool.start(worker)
+                        self._update_task_status(task_id, "Running")
+                        self._request_dashboard_update()
+                except Exception as e:
+                    logger.warning(f"Could not check for missing card art sets: {e}")
         except Exception as e:
             logger.error(f"Failed to start art download worker: {e}")
             self._update_status_message(f"Failed to start art download: {e}")
@@ -273,6 +345,14 @@ class MainWindow(QMainWindow):
 
             worker = VersionCheckWorker(current_version)
             worker.signals.result.connect(self._on_version_check_result)
+            worker.signals.finished.connect(
+                lambda: (
+                    self.active_workers.remove(worker)
+                    if worker in self.active_workers
+                    else None
+                )
+            )
+            self.active_workers.append(worker)
             self.thread_pool.start(worker)
         except Exception as e:
             logger.error(f"Failed to start version check: {e}")
@@ -454,6 +534,14 @@ class MainWindow(QMainWindow):
             worker.signals.error.connect(
                 lambda e: logger.error(f"Dashboard stats error: {e}")
             )
+            worker.signals.finished.connect(
+                lambda: (
+                    self.active_workers.remove(worker)
+                    if worker in self.active_workers
+                    else None
+                )
+            )
+            self.active_workers.append(worker)
             self.thread_pool.start(worker)
 
         except Exception as e:
@@ -2199,6 +2287,13 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
+            # Clear pending tasks from the thread pool
+            if hasattr(self, "thread_pool"):
+                try:
+                    self.thread_pool.clear()
+                except Exception:
+                    pass
+
             # Request cancellation on any active workers
             active_workers = getattr(self, "active_workers", [])
             for worker in list(active_workers):
@@ -2208,6 +2303,15 @@ class MainWindow(QMainWindow):
                         cancel()
                     except Exception:
                         pass
+
+            # Close database connections
+            try:
+                from django.db import connections
+
+                connections.close_all()
+            except Exception:
+                pass
+
         except Exception as e:
             print(f"Error during shutdown: {e}")
 
