@@ -17,8 +17,6 @@ import operator
 from functools import reduce
 
 
-
-
 from django.db.models import Count, Q
 
 from app.utils import PortableSettings, clean_card_name
@@ -159,11 +157,14 @@ class CSVImportWorker(QRunnable):
                         for row in batch
                         if row.get("PackScreenshot")
                     }
-                    
+
                     # Case-insensitive lookup for existing screenshots
                     existing_screenshots = {}
                     if batch_screenshot_names:
-                        q_objs = reduce(operator.or_, [Q(name__iexact=name) for name in batch_screenshot_names])
+                        q_objs = reduce(
+                            operator.or_,
+                            [Q(name__iexact=name) for name in batch_screenshot_names],
+                        )
                         for s in Screenshot.objects.filter(q_objs):
                             existing_screenshots[s.name.lower()] = s
 
@@ -182,7 +183,7 @@ class CSVImportWorker(QRunnable):
                         account_name = row.get("CleanFilename")
                         if not account_name:
                             continue
-                        
+
                         account_name = account_name.strip()
                         account_obj = accounts_cache.get(account_name)
 
@@ -212,7 +213,9 @@ class CSVImportWorker(QRunnable):
                                     pass
 
                             if screen_name.lower() in existing_screenshots:
-                                screenshot_obj = existing_screenshots[screen_name.lower()]
+                                screenshot_obj = existing_screenshots[
+                                    screen_name.lower()
+                                ]
                                 changed = False
                                 if screenshot_obj.timestamp != row.get("Timestamp"):
                                     screenshot_obj.timestamp = row.get("Timestamp")
@@ -867,10 +870,7 @@ class ScreenshotProcessingWorker(QRunnable):
                         processed_count += 1
 
                         # Update progress every 5 files or at the end
-                        if (
-                            processed_count % 5 == 0
-                            or processed_count == total_files
-                        ):
+                        if processed_count % 5 == 0 or processed_count == total_files:
                             self.signals.progress.emit(processed_count, total_files)
                             self.signals.status.emit(
                                 QCoreApplication.translate(
@@ -941,7 +941,6 @@ class ScreenshotProcessingWorker(QRunnable):
         # Fallback: replace underscores with spaces and return the whole base name
         return base_name.replace("_", " ").strip()
 
-
     def _identify_set(self, cards_found: list, logger: logging.Logger = None) -> str:
         """
         Identify the set name from the detected cards.
@@ -1006,7 +1005,9 @@ class ScreenshotProcessingWorker(QRunnable):
                 with transaction.atomic():
                     # Check if screenshot already exists (might have been created by CSVImportWorker)
                     # We use iexact to handle potential case-sensitivity issues between CSV and filesystem
-                    screenshot_obj = Screenshot.objects.filter(name__iexact=filename).first()
+                    screenshot_obj = Screenshot.objects.filter(
+                        name__iexact=filename
+                    ).first()
                     created = False
 
                     if not screenshot_obj:
