@@ -13,11 +13,13 @@ import csv
 import time
 import logging
 import threading
+import operator
+from functools import reduce
 
 
 
 
-from django.db.models import Count
+from django.db.models import Count, Q
 
 from app.utils import PortableSettings, clean_card_name
 
@@ -131,7 +133,7 @@ class CSVImportWorker(QRunnable):
                 with transaction.atomic():
                     # Pre-fetch accounts for this batch to reduce queries
                     batch_account_names = {
-                        row.get("CleanFilename")
+                        row.get("CleanFilename").strip()
                         for row in batch
                         if row.get("CleanFilename")
                     }
@@ -153,16 +155,17 @@ class CSVImportWorker(QRunnable):
 
                     # Pre-fetch existing screenshots for this batch
                     batch_screenshot_names = {
-                        row.get("PackScreenshot")
+                        row.get("PackScreenshot").strip()
                         for row in batch
                         if row.get("PackScreenshot")
                     }
-                    existing_screenshots = {
-                        s.name: s
-                        for s in Screenshot.objects.filter(
-                            name__in=batch_screenshot_names
-                        )
-                    }
+                    
+                    # Case-insensitive lookup for existing screenshots
+                    existing_screenshots = {}
+                    if batch_screenshot_names:
+                        q_objs = reduce(operator.or_, [Q(name__iexact=name) for name in batch_screenshot_names])
+                        for s in Screenshot.objects.filter(q_objs):
+                            existing_screenshots[s.name.lower()] = s
 
                     to_create = []
                     to_update = []
@@ -179,7 +182,8 @@ class CSVImportWorker(QRunnable):
                         account_name = row.get("CleanFilename")
                         if not account_name:
                             continue
-
+                        
+                        account_name = account_name.strip()
                         account_obj = accounts_cache.get(account_name)
 
                         if not row.get("PackScreenshot"):
@@ -192,12 +196,12 @@ class CSVImportWorker(QRunnable):
                             continue
 
                         try:
-                            screen_name = row["PackScreenshot"]
-                            if screen_name in seen_in_batch:
+                            screen_name = row["PackScreenshot"].strip()
+                            if screen_name.lower() in seen_in_batch:
                                 continue
-                            seen_in_batch.add(screen_name)
+                            seen_in_batch.add(screen_name.lower())
 
-                            # Use only name for get_or_create to avoid unique constraint issues
+                            # Use only name for lookup to avoid unique constraint issues
                             # when other metadata (like timestamp) differs.
                             set_code = translate_set_name(row.get("PackType"))
                             pack_set = None
@@ -207,8 +211,8 @@ class CSVImportWorker(QRunnable):
                                 except ValueError:
                                     pass
 
-                            if screen_name in existing_screenshots:
-                                screenshot_obj = existing_screenshots[screen_name]
+                            if screen_name.lower() in existing_screenshots:
+                                screenshot_obj = existing_screenshots[screen_name.lower()]
                                 changed = False
                                 if screenshot_obj.timestamp != row.get("Timestamp"):
                                     screenshot_obj.timestamp = row.get("Timestamp")
@@ -918,6 +922,7 @@ class ScreenshotProcessingWorker(QRunnable):
         # Fallback: replace underscores with spaces and return the whole base name
         return base_name.replace("_", " ").strip()
 
+
     def _identify_set(self, cards_found: list, logger: logging.Logger = None) -> str:
         """
         Identify the set name from the detected cards.
@@ -981,17 +986,21 @@ class ScreenshotProcessingWorker(QRunnable):
             try:
                 with transaction.atomic():
                     # Check if screenshot already exists (might have been created by CSVImportWorker)
-                    screenshot_obj, created = Screenshot.objects.get_or_create(
-                        name=filename,
-                        defaults={
-                            "timestamp": datetime.now().isoformat(),
-                            "set": (
+                    # We use iexact to handle potential case-sensitivity issues between CSV and filesystem
+                    screenshot_obj = Screenshot.objects.filter(name__iexact=filename).first()
+                    created = False
+
+                    if not screenshot_obj:
+                        screenshot_obj = Screenshot.objects.create(
+                            name=filename,
+                            timestamp=datetime.now().isoformat(),
+                            set=(
                                 CardSet(translate_set_name(pack_type))
                                 if translate_set_name(pack_type)
                                 else None
                             ),
-                        },
-                    )
+                        )
+                        created = True
 
                     if not created and not self.overwrite and screenshot_obj.processed:
                         self.signals.status.emit(

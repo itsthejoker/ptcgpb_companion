@@ -865,7 +865,7 @@ class AccountCardListDialog(QDialog):
                 dt = datetime.strptime(str(account), "%Y%m%d%H%M%S")
                 now = datetime.now()
                 diff = now - dt
-                age_val = self.tr("%1d").replace("%1", diff.days)
+                age_val = self.tr("%1d").replace("%1", str(diff.days))
             except (ValueError, TypeError):
                 pass
             age_item = NumericTableWidgetItem(age_val, is_age=True)
