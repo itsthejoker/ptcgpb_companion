@@ -986,18 +986,25 @@ class AccountCardListDialog(QDialog):
             current_shinedust = 0
 
         if current_shinedust < cost:
-            QMessageBox.warning(
-                self,
-                self.tr("Insufficient Shinedust"),
+            insufficient_box = QMessageBox(self)
+            insufficient_box.setWindowTitle(self.tr("Insufficient Shinedust"))
+            insufficient_box.setText(
                 self.tr(
                     "Account <b>%1</b> does not have enough shinedust (%2) "
                     "to perform this action (cost: %3)."
                 )
                 .replace("%1", account_name)
                 .replace("%2", f"{current_shinedust:,}")
-                .replace("%3", f"{cost:,}"),
+                .replace("%3", f"{cost:,}")
             )
-            return
+            remove_anyway_btn = insufficient_box.addButton(
+                self.tr("Remove anyway"), QMessageBox.ButtonRole.ActionRole
+            )
+            insufficient_box.addButton(QMessageBox.StandardButton.Cancel)
+            insufficient_box.exec()
+            if insufficient_box.clickedButton() != remove_anyway_btn:
+                return
+            cost = 0
 
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle(self.tr("Remove Card?"))
