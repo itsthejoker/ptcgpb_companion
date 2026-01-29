@@ -64,6 +64,11 @@ if not exist "%DIST_DIR%" (
   exit /b 1
 )
 
+echo Cleaning translation files from dist...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "Get-ChildItem -Path '%DIST_DIR%' -Recurse -Include *.po,*.mo | Remove-Item -Force ;" ^
+  "Get-ChildItem -Path '%DIST_DIR%' -Recurse -Directory -Filter LC_MESSAGES | Remove-Item -Recurse -Force"
+
 set "ZIP_NAME=dist\%APP_NAME%-%APP_VERSION%-windows.zip"
 echo Packaging "%DIST_DIR%" -^> "%ZIP_NAME%"
 

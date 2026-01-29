@@ -65,6 +65,11 @@ done
 echo "Running PyInstaller via uv run..."
 uv run --with pyinstaller pyinstaller "${PYI_OPTS[@]}" "${ENTRYPOINT}"
 
+if [[ -d "dist" ]]; then
+  find dist -type f \( -name "*.mo" -o -name "*.po" \) -print -delete
+  find dist -type d -name "LC_MESSAGES" -print -exec rm -rf {} +
+fi
+
 # Create versioned ZIP of the onedir distribution
 DIST_DIR="dist/${APP_NAME}"
 if [[ ! -d "${DIST_DIR}" ]]; then
