@@ -157,9 +157,7 @@ class CSVImportWorker(QRunnable):
                                 [Account(name=name) for name in still_missing],
                                 ignore_conflicts=True,
                             )
-                            for acc in Account.objects.filter(
-                                name__in=still_missing
-                            ):
+                            for acc in Account.objects.filter(name__in=still_missing):
                                 accounts_cache[acc.name] = acc
 
                     # Pre-fetch existing screenshots for this batch
@@ -995,6 +993,7 @@ class ScreenshotProcessingWorker(QRunnable):
 
         try:
             from app.db.models import CardSet
+
             sets = CardSet.name_map()
 
             # Count occurrences of each set code

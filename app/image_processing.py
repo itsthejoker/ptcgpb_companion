@@ -368,9 +368,7 @@ class ImageProcessor:
                     card_region = screenshot[y : y + h, x : x + w]
 
                     if self._is_empty_card_region(card_region):
-                        logger.debug(
-                            f"Skipping empty card slot at position {i+1}"
-                        )
+                        logger.debug(f"Skipping empty card slot at position {i+1}")
                         continue
 
                     # Use force_detailed=True for maximum accuracy since we're only scanning once.

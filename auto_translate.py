@@ -4,7 +4,9 @@ import argparse
 from google.cloud import translate_v3
 
 
-def auto_translate(ts_file, target_lang, output_file=None, batch_size=50, project_id=None):
+def auto_translate(
+    ts_file, target_lang, output_file=None, batch_size=50, project_id=None
+):
     if not project_id:
         project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
     if not project_id:
