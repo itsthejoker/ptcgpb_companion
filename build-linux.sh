@@ -41,6 +41,9 @@ PYI_OPTS=(
   --name "${APP_NAME}"
   --windowed
   --icon=_internal\ptcgpb-companion-icon.ico
+  --additional-hooks-dir pyinstaller_hooks
+  --exclude-module babel
+  --exclude-module gettext
 )
 
 # Data assets to include (src:dest within bundle)
