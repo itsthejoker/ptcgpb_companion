@@ -23,23 +23,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install upx
-        run: winget install -e --id UPX.UPX --accept-source-agreements --accept-package-agreements
-
-      - name: Add upx to PATH
-        shell: pwsh
-        run: |
-          $primary = "C:\\Program Files\\UPX"
-          if (Test-Path "$primary\\upx.exe") {
-            $primary | Out-File -FilePath $env:GITHUB_PATH -Append
-            exit 0
-          }
-          $fallback = Get-ChildItem "C:\\Program Files" -Recurse -Filter upx.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($fallback) {
-            $fallback.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append
-            exit 0
-          }
-          Write-Error "upx.exe not found after installation"
+      - name: Install UPX
+        uses: crazy-max/ghaction-upx@v3
+        with:
+          install-only: true
+      
+      - name: UPX version
+        run: upx --version
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
