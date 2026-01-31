@@ -89,7 +89,7 @@ Account Injector in PTCGPB to load the account the normal way.
 
 As you use the application, you'll probably want to move cards out of accounts or trade. You can't add cards to
 accounts, but what you can do is remove them. Click on the 'remove' button to subtract one of the highlighted cards from
-that account.
+that account along with the shinedust amount from trading it.
 
 ### Resetting the Database with Removed Cards
 
@@ -98,9 +98,11 @@ Process Removed Cards to re-remove all the cards you manually removed.
 
 ## Adding More Data
 
-As your bots continue to run, you will naturally amass more trades. You will need to load the CSV first, **then** load
-the screenshots. The app has a heavy emphasis on caching and quickly checking work that has been done before; it takes
-roughly 1 second to tell me that all 18,000 of my screenshots have already been processed and there are no new ones.
+As your bots continue to run, you will naturally amass more trades. There is an automatic job to perodically import
+data as long as there are changes to the screenshots directory, or you can click "Load more data" on the home screen
+to force an import to start. The app has a heavy emphasis on caching and quickly checking work that has been done
+before; it takes roughly 1 second to tell me that all 18,000 of my screenshots have already been processed and there
+are no new ones.
 
 ## Development
 
@@ -118,7 +120,7 @@ Steps:
     - `chmod +x ./build-linux.sh` (linux only)
 2. Run the build:
     - `./build-linux.sh`
-    - `./build-windows.bat` on Windows machines
+    - `.\build-windows.bat` on Windows machines
 
 What it does:
 
@@ -144,47 +146,13 @@ Notes:
 
 ## Working with Translations
 
-The translations for QT6 are a pain in the butt. 
+The translations for QT6 are a pain in the butt. I've moved all of it to some scripts; you need a google cloud project
+set up with the Translate V3 API -- get the name of the project (like my-project12345) and run:
 
-### 1. String Extraction
-Use `pylupdate6` to extract strings from the Python source files into Qt Translation Source (`.ts`) files.
-
-- Run the extraction commands:
-  ```bash
-  uv run pylupdate6 app/*.py app/**/*.py main.py -ts app/translations/en.ts && \
-  uv run pylupdate6 app/*.py app/**/*.py main.py -ts app/translations/zh.ts && \
-  uv run pylupdate6 app/*.py app/**/*.py main.py -ts app/translations/ja.ts && \
-  uv run pylupdate6 app/*.py app/**/*.py main.py -ts app/translations/de.ts && \
-  uv run pylupdate6 app/*.py app/**/*.py main.py -ts app/translations/fr.ts && \
-  uv run pylupdate6 app/*.py app/**/*.py main.py -ts app/translations/ko.ts && \
-  uv run pylupdate6 app/*.py app/**/*.py main.py -ts app/translations/es.ts && \
-  uv run pylupdate6 app/*.py app/**/*.py main.py -ts app/translations/it.ts
-  ```
-
-### 2. Translation Process
-Translate the extracted strings in the `.ts` files.
-- Use **Qt Linguist** for a GUI-based translation experience.
-- Target languages:
-    - `en`: English (Source)
-    - `zh`: Chinese (Simplified/Traditional)
-    - `ja`: Japanese
-    - `de`: German
-    - `fr`: French
-    - `ko`: Korean
-    - `es`: Spanish
-    - `it`: Italian
-
-(If you're Joe, run the Google Translate script that has silly things hardcoded into it, which is why it's not in this repo.)
-
-### 3. Compilation
-Compile the `.ts` files into binary `.qm` files that the application can load efficiently at runtime.
-```bash
-lrelease app/translations/en.ts && \
-lrelease app/translations/zh.ts && \
-lrelease app/translations/ja.ts && \
-lrelease app/translations/de.ts && \
-lrelease app/translations/fr.ts && \
-lrelease app/translations/ko.ts && \
-lrelease app/translations/es.ts && \
-lrelease app/translations/it.ts
+```shell
+export GOOGLE_CLOUD_PROJECT="my-project12345"
 ```
+
+Then run `update_translations.sh` to automatically update each of the files, scan for untranslated strings, pass the
+untranslated strings to Translate V3, and re-assemble the file with the results, then compile it all into the format
+that QT needs for rendering properly.
