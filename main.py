@@ -9,7 +9,6 @@ It initializes the application, checks dependencies, and starts the main window.
 import ctypes
 import sys
 import os
-import logging
 from PyQt6 import QtCore
 from PyQt6.QtWidgets import QApplication
 from PyQt6 import QtGui
