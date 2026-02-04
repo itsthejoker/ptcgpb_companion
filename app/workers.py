@@ -336,6 +336,7 @@ class CardArtDownloadWorker(QRunnable):
         max_workers: int = None,
         task_id: str = None,
         set_ids: List[str] = None,
+        card_numbers_by_set: Optional[Dict[str, List[int]]] = None,
     ):
         super().__init__()
         self.signals = WorkerSignals()
@@ -347,6 +348,7 @@ class CardArtDownloadWorker(QRunnable):
         self.max_workers = max_workers or get_max_thread_count()
         self.task_id = task_id
         self.set_ids = set_ids
+        self.card_numbers_by_set = card_numbers_by_set or {}
 
         logger_name = f"{__name__}.{self.__class__.__name__}"
         if self.task_id:
@@ -427,14 +429,48 @@ class CardArtDownloadWorker(QRunnable):
                         )
                     )
 
+            if self.card_numbers_by_set:
+                missing_only_sets = [
+                    sid for sid in self.card_numbers_by_set.keys() if sid not in set_ids
+                ]
+                if missing_only_sets:
+                    set_ids = list(set_ids) + missing_only_sets
+
             # Ensure per-set directories
             for set_id in set_ids:
                 if self._is_cancelled:
                     return
                 os.makedirs(os.path.join(dest_root, set_id), exist_ok=True)
 
-            total_estimate = len(set_ids) * 500  # rough estimate for progress
+            set_totals: Dict[str, int] = {}
+            for set_id in set_ids:
+                missing_numbers = self.card_numbers_by_set.get(set_id)
+                if missing_numbers:
+                    set_totals[set_id] = len(set(missing_numbers))
+                else:
+                    set_totals[set_id] = 500
+
+            total_estimate = sum(set_totals.values())
             processed = 0
+            progress_lock = threading.Lock()
+
+            def emit_progress(step: int = 1):
+                nonlocal processed
+                with progress_lock:
+                    processed += step
+                    current = processed
+                    total = total_estimate
+                self.signals.progress.emit(min(current, total), total)
+
+            def adjust_total(delta: int):
+                nonlocal total_estimate
+                if not delta:
+                    return
+                with progress_lock:
+                    total_estimate += delta
+                    current = processed
+                    total = total_estimate
+                self.signals.progress.emit(min(current, total), total)
 
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -458,10 +494,34 @@ class CardArtDownloadWorker(QRunnable):
                 if self._is_cancelled:
                     return 0
                 images_saved = 0
+                allowed_extensions = (".webp", ".png", ".jpg", ".jpeg")
+                missing_numbers = self.card_numbers_by_set.get(set_id)
+
+                if missing_numbers:
+                    missing_numbers = sorted(set(missing_numbers))
+
+                def has_existing_file(card_code: str) -> bool:
+                    for ext in allowed_extensions:
+                        if os.path.exists(os.path.join(dest_root, set_id, f"{card_code}{ext}")):
+                            return True
+                    return False
+
+                if missing_numbers:
+                    card_iter = missing_numbers
+                else:
+                    card_iter = range(1, 500)
+
                 # Sequentially iterate per set to stop at first missing
-                for card_num in range(1, 500):
+                attempts = 0
+                for card_num in card_iter:
                     if self._is_cancelled:
                         break
+
+                    card_code = f"{set_id}_{card_num}"
+                    if missing_numbers and has_existing_file(card_code):
+                        attempts += 1
+                        emit_progress()
+                        continue
 
                     url = self.card_url_template.format(
                         set_id=set_id, card_num=str(card_num).zfill(3)
@@ -470,12 +530,18 @@ class CardArtDownloadWorker(QRunnable):
                         r = httpx.get(url, timeout=20.0)
                     except Exception:
                         # transient error -> try next number; don't break the set
+                        attempts += 1
+                        emit_progress()
                         continue
 
                     # Limitless returns 200 with AccessDenied content when missing
                     content = r.content or b""
                     if r.status_code != 200 or (b"AccessDenied" in content):
                         # End of cards for this set
+                        attempts += 1
+                        emit_progress()
+                        if missing_numbers:
+                            continue
                         break
 
                     try:
@@ -514,9 +580,15 @@ class CardArtDownloadWorker(QRunnable):
                         )
 
                         images_saved += 1
+                        attempts += 1
+                        emit_progress()
                     except Exception as e:
                         logger.error(f"Error saving card {set_id}_{card_num}: {e}")
+                        attempts += 1
+                        emit_progress()
                         continue
+                if not missing_numbers:
+                    adjust_total(attempts - set_totals.get(set_id, 500))
                 return images_saved
 
             total_saved = 0
@@ -538,10 +610,6 @@ class CardArtDownloadWorker(QRunnable):
                     try:
                         saved = fut.result()
                         total_saved += saved
-                        processed += 500  # advance the rough estimate per finished set
-                        if processed > total_estimate:
-                            processed = total_estimate
-                        self.signals.progress.emit(processed, total_estimate)
                         self.signals.status.emit(
                             f"Finished set {sid}: {saved} images saved"
                         )
@@ -828,17 +896,8 @@ class ScreenshotProcessingWorker(QRunnable):
                         # Do not count as "with results" but it's successfully handled
                         return False
 
-                    # Try to get existing set if any (e.g. from CSV import)
-                    existing_set = (
-                        Screenshot.objects.filter(name=filename)
-                        .values_list("set", flat=True)
-                        .first()
-                    )
-
                     # Process the image with OpenCV
-                    cards_found = processor.process_screenshot(
-                        file_path, force_set=existing_set
-                    )
+                    cards_found = processor.process_screenshot(file_path)
 
                     # Store results in database
                     if cards_found:
@@ -1326,6 +1385,43 @@ class CardDataLoadWorker(QRunnable):
                 processed += 1
                 if processed % 200 == 0:
                     self.signals.progress.emit(processed, total)
+
+            # Include cards from the master `app.names` list that may not exist in the
+            # database yet so they appear with a zero count in the UI.
+            from app.names import cards as master_card_names
+            import re
+
+            rarity_pattern = re.compile(r"\(([^)]+)\)$")
+            existing_codes = {item.get("card_code") for item in data}
+            for code, full_name in master_card_names.items():
+                if code in existing_codes:
+                    continue
+
+                # Derive display name, set name and rarity from the master list
+                display_name = clean_card_name(full_name)
+                set_code = code.split("_", 1)[0] if "_" in code else ""
+                set_display_name = set_names.get(set_code, set_code) or ""
+
+                # Extract rarity code from the master name (e.g., "Bulbasaur (1D)")
+                match = rarity_pattern.search(full_name)
+                r_code = match.group(1) if match else ""
+                rarity = rarity_map.get(r_code, r_code) if r_code else ""
+
+                image_path = f"{set_code}/{code}.webp" if set_code else f"{code}.webp"
+
+                data.append(
+                    {
+                        "card_code": code,
+                        "card_name": display_name,
+                        "set_name": set_display_name,
+                        "rarity": rarity,
+                        "count": 0,
+                        "image_path": image_path,
+                    }
+                )
+
+            # Update total to include merged master list entries
+            total = len(data)
 
             def sort_key(item: Dict[str, Any]):
                 card_code = (item.get("card_code") or "").upper()

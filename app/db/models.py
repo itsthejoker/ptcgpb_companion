@@ -221,3 +221,18 @@ class Account(models.Model):
 
     def __str__(self):
         return f"Account {self.pk} - {self.name}"
+
+
+class LastScan(models.Model):
+    # There should only be one of this model.
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    def set_now(self):
+        self.timestamp = datetime.now()
+        self.save()
+
+
+def get_last_scan():
+    if LastScan.objects.count() == 0:
+        return None
+    return LastScan.objects.first().timestamp

@@ -304,15 +304,12 @@ class ImageProcessor:
                     "metadata": metadata,
                 }
 
-    def process_screenshot(
-        self, image_path: str, force_set: str = None
-    ) -> List[Dict[str, Any]]:
+    def process_screenshot(self, image_path: str) -> List[Dict[str, Any]]:
         """
         Process a screenshot to identify cards using fixed position detection
 
         Args:
             image_path: Path to screenshot image
-            force_set: If provided, only search within this set
 
         Returns:
             List[Dict]: List of identified cards with positions and confidence scores
@@ -325,9 +322,6 @@ class ImageProcessor:
 
             try:
                 logger.debug(f"Processing screenshot: {image_path}")
-                if force_set:
-                    logger.debug(f"Force set requested: {force_set}")
-
                 # Load and preprocess screenshot
                 screenshot = self._preprocess_screenshot(image_path)
 
@@ -345,14 +339,10 @@ class ImageProcessor:
 
                 # If 4 cards, it's always A4b / Deluxe Pack Ex
                 # If 5 or 6 cards, it's guaranteed NOT to be A4b
-                forced_set = (
-                    force_set if force_set else ("A4b" if num_cards == 4 else None)
-                )
+                forced_set = "A4b" if num_cards == 4 else None
                 excluded_sets = ["A4b"] if num_cards in (5, 6) else []
 
-                if force_set:
-                    logger.debug(f"Set locked to {force_set}")
-                elif forced_set:
+                if forced_set:
                     logger.debug(
                         f"Four-card pack detected, forcing set to {forced_set}"
                     )
@@ -375,7 +365,6 @@ class ImageProcessor:
                     # This ensures we don't just rely on pHash which can have collisions.
                     best_match = self._find_best_card_match(
                         card_region,
-                        force_set=forced_set,
                         exclude_sets=excluded_sets,
                         force_detailed=True,
                     )
@@ -539,7 +528,6 @@ class ImageProcessor:
     def _find_best_card_match(
         self,
         card_region: np.ndarray,
-        force_set: str = None,
         force_detailed: bool = False,
         exclude_sets: List[str] = None,
     ) -> Dict[str, Any]:
@@ -548,7 +536,6 @@ class ImageProcessor:
 
         Args:
             card_region: Card image region as numpy array
-            force_set: If provided, only search within this set
             force_detailed: If True, always perform detailed search regardless of quick search confidence
             exclude_sets: If provided, do not search within these sets
 
@@ -578,12 +565,8 @@ class ImageProcessor:
         quick_best_score = -1
 
         if self.phash_matrix is not None:
-            # Filter indices based on force_set / exclude_sets
-            if force_set:
-                indices = [
-                    i for i, m in enumerate(self.phash_metadata) if m[0] == force_set
-                ]
-            elif exclude_sets:
+            # Filter indices based on exclude_sets
+            if exclude_sets:
                 indices = [
                     i
                     for i, m in enumerate(self.phash_metadata)
@@ -615,14 +598,11 @@ class ImageProcessor:
                         }
         else:
             # Fallback to slow loop if matrix not built (should not happen)
-            if force_set:
-                search_sets = [force_set]
-            else:
-                search_sets = [
-                    s
-                    for s in self.phash_templates.keys()
-                    if s not in (exclude_sets or [])
-                ]
+            search_sets = [
+                s
+                for s in self.phash_templates.keys()
+                if s not in (exclude_sets or [])
+            ]
 
             for set_name in search_sets:
                 if set_name not in self.phash_templates:
@@ -662,9 +642,7 @@ class ImageProcessor:
         # Stage 2: Detailed search at full resolution
         # Determine candidate sets from quick search
         candidate_sets = []
-        if force_set:
-            candidate_sets = [force_set]
-        elif set_scores:
+        if set_scores:
             # Sort sets by their best card score
             sorted_sets = sorted(set_scores.items(), key=lambda x: x[1], reverse=True)
             # Take top sets that are close to the best score

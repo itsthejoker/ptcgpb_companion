@@ -31,8 +31,7 @@ from PyQt6.QtGui import QAction
 import os
 import sys
 import logging
-import threading
-from datetime import datetime
+from datetime import datetime, UTC
 
 logger = logging.getLogger(__name__)
 
@@ -66,26 +65,8 @@ from app.utils import (
     get_task_id,
     clean_card_name,
 )
-from watchdog.observers.polling import PollingObserver
-from watchdog.events import FileSystemEventHandler
 from settings import BASE_DIR
 import humanize
-
-
-class ScreenshotChangeHandler(FileSystemEventHandler):
-    """Handler for watchdog events in the screenshots directory"""
-
-    def __init__(self):
-        super().__init__()
-        self.has_changes = False
-
-    def on_any_event(self, event):
-        if not event.is_directory:
-            if event.event_type in ("created", "modified", "moved"):
-                logger.info(
-                    f"Watchdog detected {event.event_type} event: {event.src_path}"
-                )
-                self.has_changes = True
 
 
 class MainWindow(QMainWindow):
@@ -120,10 +101,15 @@ class MainWindow(QMainWindow):
         self.new_version_available = False
         self.latest_version_info = {}
 
+        # used for forced migrations
+        self.force_images_overwrite = False
+
         self._dashboard_timer = QTimer()
         logger.info("firing dashboard timer")
         self._dashboard_timer.setSingleShot(True)
         self._dashboard_timer.timeout.connect(self._update_dashboard_statistics)
+        self._auto_import_timer = QTimer(self)
+        self._auto_import_timer.timeout.connect(self._on_auto_import_timer)
         logger.info("setting up status bar")
         self._setup_status_bar()  # Initialize status bar early so it can be used by other setup methods
         logger.info("setting up menu bar")
@@ -133,9 +119,11 @@ class MainWindow(QMainWindow):
 
         # Set initial state for combined import availability
         self._update_load_new_data_availability()
+        self._configure_auto_import_timer()
 
         QTimer.singleShot(100, self._start_art_download_if_needed)
         QTimer.singleShot(150, self._check_for_database_migration)
+        QTimer.singleShot(150, self._check_for_rescan_needed)
 
         QTimer.singleShot(200, self._update_dashboard_statistics)
 
@@ -148,9 +136,6 @@ class MainWindow(QMainWindow):
             }
         )
         self._update_recent_activity()
-
-        # Initialize watchdog system deferred with a small delay to ensure UI renders first
-        QTimer.singleShot(1000, self._init_watchdog)
 
     def _start_art_download_if_needed(self):
         """Check for card art directory and start background download if missing"""
@@ -235,9 +220,46 @@ class MainWindow(QMainWindow):
                         sid for sid in online_set_ids if sid not in existing_sets
                     ]
 
-                    if missing_sets:
+                    from app.names import cards as CARD_NAMES_MAP
+
+                    allowed_extensions = (".webp", ".png", ".jpg", ".jpeg")
+                    missing_cards_by_set = {}
+                    for set_id in existing_sets:
+                        expected_codes = [
+                            code
+                            for code in CARD_NAMES_MAP.keys()
+                            if code.startswith(f"{set_id}_")
+                        ]
+                        if not expected_codes:
+                            continue
+
+                        set_path = template_dir / set_id
+                        existing_files = {
+                            os.path.splitext(fname)[0]
+                            for fname in os.listdir(set_path)
+                            if fname.lower().endswith(allowed_extensions)
+                        }
+                        missing_numbers = []
+                        for code in expected_codes:
+                            if code in existing_files:
+                                continue
+                            try:
+                                missing_numbers.append(int(code.split("_", 1)[1]))
+                            except (IndexError, ValueError):
+                                continue
+
+                        if missing_numbers:
+                            missing_cards_by_set[set_id] = sorted(missing_numbers)
+
+                    if missing_sets or missing_cards_by_set:
                         logger.info(
-                            f"Detected {len(missing_sets)} missing card art sets: {', '.join(missing_sets)}"
+                            "Detected missing card art (sets: %s, cards: %s)"
+                            % (
+                                ", ".join(missing_sets) if missing_sets else "none",
+                                ", ".join(missing_cards_by_set.keys())
+                                if missing_cards_by_set
+                                else "none",
+                            )
                         )
 
                         # Print to activity log
@@ -250,15 +272,45 @@ class MainWindow(QMainWindow):
                                     "description": f"Missing card art for {set_id}. Starting background download...",
                                 }
                             )
+                        for set_id, missing_numbers in missing_cards_by_set.items():
+                            self.recent_activity_messages.append(
+                                {
+                                    "timestamp": datetime.now().strftime(
+                                        "%Y-%m-%d %H:%M:%S"
+                                    ),
+                                    "description": (
+                                        "Missing card art in %s (%s cards). "
+                                        "Starting background download..."
+                                    )
+                                    % (set_id, len(missing_numbers)),
+                                }
+                            )
                         self._update_recent_activity()
 
                         # Start worker for these specific sets
                         task_id = get_task_id()
+                        set_ids_to_download = list(
+                            dict.fromkeys(
+                                missing_sets + list(missing_cards_by_set.keys())
+                            )
+                        )
+                        total_missing_cards = sum(
+                            len(numbers) for numbers in missing_cards_by_set.values()
+                        )
+                        task_label = f"Card Art Download ({len(set_ids_to_download)} sets)"
+                        if total_missing_cards:
+                            task_label = (
+                                f"Card Art Download ({len(set_ids_to_download)} sets, "
+                                f"{total_missing_cards} cards)"
+                            )
                         self._add_processing_task(
-                            task_id, f"Card Art Download ({len(missing_sets)} sets)"
+                            task_id, task_label
                         )
 
-                        worker = CardArtDownloadWorker(set_ids=missing_sets)
+                        worker = CardArtDownloadWorker(
+                            set_ids=set_ids_to_download,
+                            card_numbers_by_set=missing_cards_by_set,
+                        )
                         worker.task_id = task_id
 
                         # Connect signals
@@ -294,6 +346,7 @@ class MainWindow(QMainWindow):
 
     def _check_for_database_migration(self):
         """Check if an old database exists and prompt for migration if so"""
+        # This is for anyone who was a user before we switched to Django
         old_db_path = BASE_DIR / "data" / "cardcounter.db"
         if os.path.exists(old_db_path):
             msg_box = QMessageBox(self)
@@ -316,6 +369,44 @@ class MainWindow(QMainWindow):
                 sys.exit(0)
 
             self._migration_in_progress = True
+            self._on_load_new_data()
+
+    def _check_for_rescan_needed(self):
+        from app.db.models import get_last_scan, LastScan
+
+        scan = False
+        last_scan = get_last_scan()
+        if not last_scan:
+            LastScan.objects.create()
+            scan = True
+        # change this based on any time we need to force a rescan
+        if last_scan is not None and last_scan < datetime(2026, 2, 3, tzinfo=UTC):
+            LastScan.objects.first().set_now()
+            scan = True
+
+        if scan:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Rescan Needed")
+            msg_box.setText(
+                "We are very sorry, but due to updates in card recognition, we need to rebuild your data.\n\n"
+                "To continue, we need to perform a complete re-import of your CSV and screenshots. You can"
+                " continue to use the app during this process."
+            )
+            start_button = msg_box.addButton("Start", QMessageBox.ButtonRole.AcceptRole)
+            cancel_button = msg_box.addButton(
+                "Cancel", QMessageBox.ButtonRole.RejectRole
+            )
+            msg_box.setDefaultButton(start_button)
+            msg_box.setIcon(QMessageBox.Icon.Information)
+
+            msg_box.exec()
+
+            if msg_box.clickedButton() == cancel_button:
+                logger.info("User cancelled database migration; quitting")
+                sys.exit(0)
+
+            self._migration_in_progress = True
+            self.force_images_overwrite = True
             self._on_load_new_data()
 
     def _workers_are_running(self) -> bool:
@@ -1642,6 +1733,48 @@ class MainWindow(QMainWindow):
             # Keep action visible in menu for discoverability
             self.load_new_data_action.setVisible(True)
 
+    def _configure_auto_import_timer(self):
+        """Start or stop the auto-import timer based on settings."""
+        watch_enabled = bool(
+            self.settings.get_setting("Screenshots/watch_directory", True)
+        )
+        interval_setting = self.settings.get_setting("Screenshots/check_interval", 5)
+        try:
+            interval_minutes = float(interval_setting)
+        except (TypeError, ValueError):
+            interval_minutes = 0
+
+        if not watch_enabled or interval_minutes <= 0:
+            if self._auto_import_timer.isActive():
+                self._auto_import_timer.stop()
+            return
+
+        interval_ms = max(1, int(interval_minutes * 60 * 1000))
+        self._auto_import_timer.setInterval(interval_ms)
+        if not self._auto_import_timer.isActive():
+            self._auto_import_timer.start()
+
+    def _on_auto_import_timer(self):
+        """Run a combined import on a timer when enabled."""
+        if not bool(self.settings.get_setting("Screenshots/watch_directory", True)):
+            if self._auto_import_timer.isActive():
+                self._auto_import_timer.stop()
+            return
+
+        if self._workers_are_running() or self._combined_import_request:
+            return
+
+        csv_path, screenshots_dir = self._get_saved_paths()
+        if not (
+            bool(csv_path)
+            and os.path.isfile(csv_path)
+            and bool(screenshots_dir)
+            and os.path.isdir(screenshots_dir)
+        ):
+            return
+
+        self._on_load_new_data()
+
     def _on_load_new_data(self):
         """Run the combined CSV + screenshot import using saved paths"""
         if self._combined_import_request:
@@ -1886,8 +2019,14 @@ class MainWindow(QMainWindow):
             self._update_load_new_data_availability()
             return
 
+        overwrite = False
+
         self._combined_import_request["status"] = "screenshots"
-        self._on_processing_started(screenshots_dir, overwrite=False)
+        if self.force_images_overwrite:
+            self.force_images_overwrite = False
+            overwrite = True
+
+        self._on_processing_started(screenshots_dir, overwrite=overwrite)
 
     def _on_screenshot_processing_progress(
         self, current: int, total: int, task_id: str = None
@@ -2189,140 +2328,24 @@ class MainWindow(QMainWindow):
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 # Refresh anything that might depend on settings
                 self._update_load_new_data_availability()
-                self._setup_watchdog()
+                self._configure_auto_import_timer()
         except Exception as e:
             self._update_status_message(
                 self.tr("Error showing preferences dialog: %1").replace("%1", str(e))
             )
 
-    def _init_watchdog(self):
-        """Initialize the screenshot directory watchdog system"""
-        self._watchdog_observer = None
-        self._watchdog_handler = ScreenshotChangeHandler()
-        # Do NOT force has_changes = True here to avoid immediate heavy I/O on startup.
-        # Instead, we will schedule a one-time catch-up scan after the app is stable.
-        self._watchdog_handler.has_changes = False
-
-        self._watchdog_timer = QTimer(self)
-        self._watchdog_timer.timeout.connect(self._check_for_screenshot_changes)
-
-        self._setup_watchdog()
-
-        # Schedule a one-time catch-up scan after 10 seconds
-        QTimer.singleShot(10000, self._trigger_catchup_scan)
-
     def _trigger_catchup_scan(self):
         """Trigger an initial scan to catch up on any changes while the app was closed"""
         logger.debug("Triggering initial catch-up scan for screenshots...")
-        if not hasattr(self, "_watchdog_handler"):
-            return
 
         # We only trigger if no other processing is running
         if not self._workers_are_running():
-            self._watchdog_handler.has_changes = True
-            self._check_for_screenshot_changes()
+            self._combined_import_request = True
+            self._on_load_new_data()
         else:
             # If something is already running, we don't need to force it,
             # it's already doing a scan.
             logger.debug("Catch-up scan skipped: processing already in progress.")
-
-    def _setup_watchdog(self):
-        """Setup or refresh the watchdog observer based on settings"""
-        # Stop existing observer if any
-        if self._watchdog_observer:
-            try:
-                self._watchdog_observer.stop()
-                # We don't join here to avoid blocking the UI thread during setup,
-                # as stop() signals the thread to exit.
-            except Exception as e:
-                logger.error(f"Error stopping watchdog observer: {e}")
-            self._watchdog_observer = None
-
-        # Check if enabled
-        enabled = (
-            str(
-                self.settings.get_setting("Screenshots/watch_directory", "False")
-            ).lower()
-            == "true"
-        )
-        if not enabled:
-            self._watchdog_timer.stop()
-            logger.info("Watchdog system disabled by user preference")
-            return
-
-        # Get directory and interval
-        watch_dir = self.settings.get_setting("General/screenshots_dir", "")
-        interval_min = int(self.settings.get_setting("Screenshots/check_interval", 5))
-
-        if not watch_dir or not os.path.isdir(watch_dir):
-            logger.warning(f"Watchdog enabled but directory '{watch_dir}' is invalid")
-            self._watchdog_timer.stop()
-            return
-
-        # Start observer
-        try:
-            # Using PollingObserver specifically of WSL/network mounts
-            # where native inotify events don't work correctly.
-            # timeout=10 to keep CPU usage low with many files.
-            observer = PollingObserver(timeout=10)
-            self._watchdog_observer = observer
-
-            def start_observer():
-                try:
-                    observer.schedule(
-                        self._watchdog_handler, watch_dir, recursive=False
-                    )
-                    observer.start()
-                    logger.info(f"Watchdog background thread started for {watch_dir}")
-                except Exception as e:
-                    logger.error(f"Failed to start watchdog observer thread: {e}")
-
-            threading.Thread(target=start_observer, daemon=True).start()
-
-            # Start timer - check once immediately (but still deferred by QTimer)
-            self._watchdog_timer.start(interval_min * 60 * 1000)
-            QTimer.singleShot(1000, self._check_for_screenshot_changes)
-            logger.info(
-                f"Watchdog initialization scheduled for {watch_dir}, checking every {interval_min} minutes"
-            )
-        except Exception as e:
-            logger.error(f"Failed to start watchdog observer: {e}")
-            self._watchdog_timer.stop()
-
-    def _check_for_screenshot_changes(self):
-        """Periodically check if watchdog detected any changes"""
-        logger.debug("Checking for screenshot changes flag...")
-        if not self._watchdog_handler.has_changes:
-            return
-
-        # Don't start processing if the window hasn't been shown yet or just shown
-        # This helps avoid a hang immediately on startup if there are pending changes
-        if not self.isVisible():
-            logger.info(
-                "Screenshot changes detected, but window is not yet visible. Delaying."
-            )
-            return
-
-        logger.debug("Changes detected in screenshots directory.")
-
-        if self._workers_are_running():
-            logger.info(
-                "Screenshot changes detected, but processing is already in progress. Skipping."
-            )
-            return
-
-        logger.info(
-            "Screenshot changes detected by watchdog. Triggering processing job."
-        )
-
-        self._watchdog_handler.has_changes = False
-
-        # Trigger combined import (CSV + screenshots)
-        csv_path, screenshot_path = self._get_saved_paths()
-        if not csv_path or not screenshot_path:
-            logger.warning("No CSV or screenshots directory found. Skipping import.")
-            return
-        self._on_load_new_data()
 
     def closeEvent(self, event):
         """Handle window close event"""
@@ -2340,15 +2363,6 @@ class MainWindow(QMainWindow):
 
         # Perform cleanup
         try:
-            # Stop watchdog
-            if hasattr(self, "_watchdog_observer") and self._watchdog_observer:
-                try:
-                    self._watchdog_observer.stop()
-                    # We don't join() because it might block and
-                    # watchdog threads are daemon threads
-                except Exception:
-                    pass
-
             # Clear pending tasks from the thread pool
             if hasattr(self, "thread_pool"):
                 try:

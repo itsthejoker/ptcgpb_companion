@@ -744,14 +744,6 @@ class DiagnoseImageDialog(QDialog):
         file_layout.addWidget(browse_btn)
         layout.addLayout(file_layout)
 
-        options_layout = QFormLayout()
-        self.force_set_input = QLineEdit()
-        self.force_set_input.setPlaceholderText(
-            self.tr("Optional set code (e.g., A4b)")
-        )
-        options_layout.addRow(self.tr("Force Set:"), self.force_set_input)
-        layout.addLayout(options_layout)
-
         self.results_table = QTableWidget()
         self.results_table.setColumnCount(5)
         self.results_table.setHorizontalHeaderLabels(
@@ -831,10 +823,7 @@ class DiagnoseImageDialog(QDialog):
             template_dir = BASE_DIR / "resources" / "card_imgs"
             processor.load_card_templates(template_dir)
 
-            force_set = self.force_set_input.text().strip() or None
-            results = processor.process_screenshot(
-                self._image_path, force_set=force_set
-            )
+            results = processor.process_screenshot(self._image_path)
 
             empty_flags, _positions = self._get_empty_flags(
                 processor, self._image_path
@@ -1181,18 +1170,22 @@ class AccountCardListDialog(QDialog):
         else:
             cost = SHINEDUST_REQUIREMENTS.get(rarity, 0)
 
-        # Get account and check shinedust
-        account = Account.objects.filter(name=account_name).first()
-        if not account:
-            QMessageBox.warning(
-                self,
-                self.tr("Error"),
-                self.tr("Account '%1' not found.").replace("%1", account_name),
-            )
-            return
+        account = None
+        if account_name is not None:
+            # Get account and check shinedust
+            account = Account.objects.filter(name=account_name).first()
+            if not account:
+                QMessageBox.warning(
+                    self,
+                    self.tr("Error"),
+                    self.tr("Account '%1' not found.").replace("%1", account_name),
+                )
+                return
+        else:
+            cost = 0
 
         try:
-            current_shinedust = int(account.shinedust) if account.shinedust else 0
+            current_shinedust = int(account.shinedust) if account and account.shinedust else 0
         except (ValueError, TypeError):
             current_shinedust = 0
 
@@ -1219,6 +1212,7 @@ class AccountCardListDialog(QDialog):
 
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle(self.tr("Remove Card?"))
+        account_display = account_name if account_name is not None else self.tr("Unknown")
         msg_box.setText(
             self.tr(
                 "One instance of <b>%1</b> will be removed from account <b>%2</b>.<br><br>"
@@ -1226,7 +1220,7 @@ class AccountCardListDialog(QDialog):
                 "If the account has multiples of this same card, only one will be removed."
             )
             .replace("%1", self.card_name)
-            .replace("%2", account_name)
+            .replace("%2", account_display)
             .replace("%3", f"{cost:,}")
         )
         msg_box.setStandardButtons(
@@ -1236,9 +1230,9 @@ class AccountCardListDialog(QDialog):
 
         if msg_box.exec() == QMessageBox.StandardButton.Yes:
             # Find one instance to remove
-            query = ScreenshotCard.objects.filter(
-                screenshot__account__name=account_name, card__code=self.card_code
-            )
+            query = ScreenshotCard.objects.filter(card__code=self.card_code)
+            if account_name is not None:
+                query = query.filter(screenshot__account__name=account_name)
 
             if screenshot_path:
                 query = query.filter(screenshot__name=screenshot_path)
@@ -1246,8 +1240,9 @@ class AccountCardListDialog(QDialog):
             sc = query.first()
             if sc:
                 # Update shinedust
-                account.shinedust = str(current_shinedust - cost)
-                account.save()
+                if account is not None:
+                    account.shinedust = str(current_shinedust - cost)
+                    account.save()
 
                 sc.delete()
                 success = True
@@ -1255,7 +1250,8 @@ class AccountCardListDialog(QDialog):
                 success = False
 
             if success:
-                record_traded_card(account_name, self.card_code)
+                if account_name is not None:
+                    record_traded_card(account_name, self.card_code)
 
                 # Update local data
                 new_shinedust_str = str(current_shinedust - cost)
