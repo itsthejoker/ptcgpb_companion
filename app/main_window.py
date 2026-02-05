@@ -31,6 +31,8 @@ from PyQt6.QtGui import QAction
 import os
 import sys
 import logging
+import subprocess
+import tempfile
 from datetime import datetime, UTC
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,7 @@ from app.workers import (
     CardDataLoadWorker,
     CardArtDownloadWorker,
     VersionCheckWorker,
+    UpdateDownloadWorker,
     DashboardStatsWorker,
     get_max_thread_count,
 )
@@ -64,6 +67,7 @@ from app.utils import (
     get_traded_cards,
     get_task_id,
     clean_card_name,
+    find_update_payload,
 )
 from settings import BASE_DIR
 import humanize
@@ -100,6 +104,7 @@ class MainWindow(QMainWindow):
 
         self.new_version_available = False
         self.latest_version_info = {}
+        self._update_prompt_shown = False
 
         # used for forced migrations
         self.force_images_overwrite = False
@@ -456,6 +461,144 @@ class MainWindow(QMainWindow):
             self.latest_version_info = result
             # Refresh recent activity to show the update message
             self._update_recent_activity()
+            self._prompt_for_update(result)
+
+    def _prompt_for_update(self, result):
+        if self._update_prompt_shown:
+            return
+        self._update_prompt_shown = True
+
+        latest_version = result.get("latest_version", "unknown")
+        asset_name = result.get("asset_name") or "the latest release"
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle(self.tr("Update Available"))
+        msg_box.setText(
+            self.tr(
+                "Version %1 is available. Would you like to download and install it now?\n\nAsset: %2"
+            )
+            .replace("%1", latest_version)
+            .replace("%2", asset_name)
+        )
+        download_button = msg_box.addButton(
+            self.tr("Download"), QMessageBox.ButtonRole.AcceptRole
+        )
+        later_button = msg_box.addButton(
+            self.tr("Later"), QMessageBox.ButtonRole.RejectRole
+        )
+        msg_box.setDefaultButton(download_button)
+        msg_box.setIcon(QMessageBox.Icon.Question)
+        msg_box.exec()
+
+        if msg_box.clickedButton() != download_button:
+            return
+
+        if not result.get("asset_url"):
+            QMessageBox.information(
+                self,
+                self.tr("Download Unavailable"),
+                self.tr(
+                    "No downloadable update asset was found for this release. The release page will be opened."
+                ),
+            )
+            QDesktopServices.openUrl(QUrl(result.get("url")))
+            return
+
+        self._start_update_download(result)
+
+    def _start_update_download(self, result):
+        try:
+            asset_url = result.get("asset_url")
+            if not asset_url:
+                raise ValueError("Update asset URL is missing.")
+
+            worker = UpdateDownloadWorker(asset_url)
+            worker.signals.progress.connect(self._on_update_download_progress)
+            worker.signals.status.connect(self._on_update_download_status)
+            worker.signals.result.connect(self._on_update_download_result)
+            worker.signals.error.connect(self._on_update_download_error)
+            worker.signals.finished.connect(
+                lambda: (
+                    self.active_workers.remove(worker)
+                    if worker in self.active_workers
+                    else None
+                )
+            )
+
+            self.active_workers.append(worker)
+            self.thread_pool.start(worker)
+        except Exception as e:
+            self._on_update_download_error(str(e))
+
+    def _on_update_download_status(self, status: str):
+        self._update_status_message(status)
+
+    def _on_update_download_progress(self, current: int, total: int):
+        self._update_progress(current, total, self.tr("Downloading update..."))
+
+    def _on_update_download_result(self, result: dict):
+        try:
+            extract_dir = result.get("extract_dir")
+            if not extract_dir:
+                raise ValueError("Update extract directory missing.")
+
+            self._clear_progress()
+            self._apply_downloaded_update(extract_dir)
+        except Exception as e:
+            self._on_update_download_error(str(e))
+
+    def _on_update_download_error(self, error: str):
+        self._clear_progress()
+        QMessageBox.critical(
+            self,
+            self.tr("Update Failed"),
+            self.tr("Failed to download or apply update: %1").replace("%1", error),
+        )
+
+    def _apply_downloaded_update(self, extract_dir: str):
+        if not getattr(sys, "frozen", False):
+            QMessageBox.information(
+                self,
+                self.tr("Update Not Supported"),
+                self.tr("Updates can only be installed from the packaged application."),
+            )
+            return
+
+        payload = find_update_payload(extract_dir)
+        if not payload:
+            raise ValueError("Update package did not contain _internal and exe files.")
+
+        internal_src, exe_src = payload
+        target_dir = os.path.dirname(sys.executable)
+        internal_target = os.path.join(target_dir, "_internal")
+        exe_target = os.path.join(target_dir, os.path.basename(exe_src))
+        updater_dir = tempfile.mkdtemp(prefix="ptcgpb_updater_")
+        script_path = os.path.join(updater_dir, "apply_update.bat")
+
+        script_lines = [
+            "@echo off",
+            "setlocal",
+            f"set PID={os.getpid()}",
+            f"set SRC_INTERNAL=\"{internal_src}\"",
+            f"set SRC_EXE=\"{exe_src}\"",
+            f"set TARGET_INTERNAL=\"{internal_target}\"",
+            f"set TARGET_EXE=\"{exe_target}\"",
+            "timeout /T 1 /NOBREAK >nul",
+            "taskkill /PID %PID% /F >nul 2>&1",
+            ":waitloop",
+            "tasklist /FI \"PID eq %PID%\" | find \"%PID%\" >nul",
+            "if not errorlevel 1 (timeout /T 1 /NOBREAK >nul & goto waitloop)",
+            "robocopy %SRC_INTERNAL% %TARGET_INTERNAL% /E /R:2 /W:1 >nul",
+            "copy /Y %SRC_EXE% %TARGET_EXE% >nul",
+            "start \"\" %TARGET_EXE%",
+            "endlocal",
+        ]
+
+        with open(script_path, "w", encoding="utf-8") as script_file:
+            script_file.write("\n".join(script_lines))
+
+        subprocess.Popen(["cmd.exe", "/C", script_path])
+        self.close()
 
     def _on_recent_activity_item_clicked(self, item):
         """Handle clicks on recent activity items"""

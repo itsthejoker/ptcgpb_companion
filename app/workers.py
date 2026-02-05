@@ -13,6 +13,8 @@ import csv
 import time
 import logging
 import threading
+import tempfile
+import zipfile
 
 
 from django.db.models import Count, Q
@@ -1505,6 +1507,28 @@ class VersionCheckWorker(QRunnable):
                 data = response.json()
                 latest_tag = data.get("tag_name", "")
                 latest_version = latest_tag.lstrip("v")
+                assets = data.get("assets", [])
+                release_page = data.get(
+                    "html_url",
+                    "https://github.com/itsthejoker/ptcgpb_companion/releases/latest",
+                )
+
+                asset_url = None
+                asset_name = None
+                for asset in assets:
+                    name = (asset.get("name") or "").lower()
+                    if name.endswith(".zip") and ("win" in name or "windows" in name):
+                        asset_url = asset.get("browser_download_url")
+                        asset_name = asset.get("name")
+                        break
+
+                if not asset_url:
+                    for asset in assets:
+                        name = (asset.get("name") or "").lower()
+                        if name.endswith(".zip"):
+                            asset_url = asset.get("browser_download_url")
+                            asset_name = asset.get("name")
+                            break
 
                 if latest_version and latest_version != self.current_version:
                     # Basic comparison - if it's different, assume it's newer
@@ -1513,7 +1537,9 @@ class VersionCheckWorker(QRunnable):
                         {
                             "new_available": True,
                             "latest_version": latest_version,
-                            "url": "https://github.com/itsthejoker/ptcgpb_companion/releases/latest",
+                            "url": release_page,
+                            "asset_url": asset_url,
+                            "asset_name": asset_name,
                         }
                     )
                 else:
@@ -1526,6 +1552,99 @@ class VersionCheckWorker(QRunnable):
         except Exception as e:
             self.logger.error(f"Error checking for updates: {e}")
             self.signals.result.emit({"new_available": False})
+        finally:
+            self.signals.finished.emit()
+
+
+class UpdateDownloadWorker(QRunnable):
+    """Worker to download and extract update assets"""
+
+    def __init__(self, asset_url: str, task_id: str = None):
+        super().__init__()
+        self.asset_url = asset_url
+        self.task_id = task_id
+        self.signals = WorkerSignals()
+        self._is_cancelled = False
+
+        logger_name = f"{__name__}.{self.__class__.__name__}"
+        if self.task_id:
+            logger_name += f".{self.task_id}"
+        self.logger = logging.getLogger(logger_name)
+
+    def cancel(self):
+        """Cancel the worker"""
+        self._is_cancelled = True
+
+    def run(self):
+        """Download update zip and extract it to a temp folder"""
+        try:
+            if self._is_cancelled:
+                return
+
+            if not self.asset_url:
+                raise ValueError(
+                    QCoreApplication.translate(
+                        "UpdateDownloadWorker", "No download URL provided for update."
+                    )
+                )
+
+            import httpx
+
+            self.signals.status.emit(
+                QCoreApplication.translate(
+                    "UpdateDownloadWorker", "Downloading update..."
+                )
+            )
+
+            temp_dir = tempfile.mkdtemp(prefix="ptcgpb_update_")
+            zip_path = os.path.join(temp_dir, "update.zip")
+
+            headers = {"User-Agent": "ptcgpb-companion-updater"}
+            with httpx.stream(
+                "GET",
+                self.asset_url,
+                follow_redirects=True,
+                headers=headers,
+                timeout=30.0,
+            ) as response:
+                response.raise_for_status()
+                total_size = int(response.headers.get("Content-Length", 0) or 0)
+                downloaded = 0
+                with open(zip_path, "wb") as f:
+                    for chunk in response.iter_bytes():
+                        if self._is_cancelled:
+                            return
+                        if not chunk:
+                            continue
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total_size:
+                            self.signals.progress.emit(downloaded, total_size)
+
+            if self._is_cancelled:
+                return
+
+            self.signals.status.emit(
+                QCoreApplication.translate(
+                    "UpdateDownloadWorker", "Extracting update..."
+                )
+            )
+
+            extract_dir = os.path.join(temp_dir, "extracted")
+            os.makedirs(extract_dir, exist_ok=True)
+            with zipfile.ZipFile(zip_path, "r") as zip_file:
+                zip_file.extractall(extract_dir)
+
+            self.signals.result.emit(
+                {"extract_dir": extract_dir, "temp_dir": temp_dir}
+            )
+        except Exception as e:
+            self.logger.error(f"Error downloading update: {e}")
+            self.signals.error.emit(
+                QCoreApplication.translate(
+                    "UpdateDownloadWorker", "Update download failed: %1"
+                ).replace("%1", str(e))
+            )
         finally:
             self.signals.finished.emit()
 

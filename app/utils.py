@@ -358,3 +358,31 @@ def clean_card_name(full_name: str) -> str:
     if not full_name:
         return ""
     return re.sub(r"\s*\([^)]+\)$", "", full_name).strip()
+
+
+def find_update_payload(extract_dir: str):
+    """Locate the _internal directory and exe within an extracted update folder."""
+    if not extract_dir or not os.path.isdir(extract_dir):
+        return None
+
+    internal_dirs = []
+    exe_files = []
+
+    for root, dirs, files in os.walk(extract_dir):
+        for dirname in dirs:
+            if dirname.lower() == "_internal":
+                internal_dirs.append(os.path.join(root, dirname))
+        for filename in files:
+            if filename.lower().endswith(".exe"):
+                exe_files.append(os.path.join(root, filename))
+
+    if not internal_dirs or not exe_files:
+        return None
+
+    for internal_dir in internal_dirs:
+        parent_dir = os.path.dirname(internal_dir)
+        for exe_path in exe_files:
+            if os.path.dirname(exe_path) == parent_dir:
+                return internal_dir, exe_path
+
+    return internal_dirs[0], exe_files[0]
