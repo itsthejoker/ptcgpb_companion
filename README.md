@@ -143,6 +143,13 @@ Notes:
 - There are no assets included. Card images are downloaded on first launch.
 - You can override the output name/version: `APP_NAME=applin APP_VERSION=0.1.0 ./build-linux.sh`
 
+### Running the Tests
+
+Run the tests with `uv run python -m pytest tests`. If you identify a screenshot that's causing problems,
+add it to the test suite so that we can continue to track it over time. If you just want to see what the
+scanning thinks it is, run `uv run python test_image_recognition.py tests/test_images/{image here}`. You
+can copy the IDs from the output of this script after manually verifying that the original scan was correct
+or manually type in the IDs after looking it up here: https://pocket.limitlesstcg.com/cards
 
 ## Working with Translations
 

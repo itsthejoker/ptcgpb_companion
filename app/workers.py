@@ -17,7 +17,7 @@ import tempfile
 import zipfile
 
 
-from django.db.models import Count, Q
+from django.db.models import Count
 from django.db.models.functions import Lower
 
 from app.utils import (
@@ -397,10 +397,10 @@ class CardArtDownloadWorker(QRunnable):
             os.makedirs(dest_root, exist_ok=True)
 
             from app.db.models import Card, CardSet
-            from app.names import (
-                cards as CARD_NAMES_MAP,
-            )
+            from app.names import Dex
             from app.db.models import Card
+
+            dex = Dex()
 
             rarity = dict(zip(Card.Rarity.values, Card.Rarity.labels))
 
@@ -553,7 +553,7 @@ class CardArtDownloadWorker(QRunnable):
                             f.write(content)
 
                         card_code = f"{set_id}_{card_num}"
-                        raw_name = CARD_NAMES_MAP.get(card_code, card_code)
+                        raw_name = dex.get(card_code, card_code)
 
                         display_name = raw_name
                         display_rarity = None
@@ -1138,9 +1138,15 @@ class ScreenshotProcessingWorker(QRunnable):
                     screenshot_cards = []
                     for card_data in cards_found:
                         # Extract card code if available
-                        card_code = card_data.get("card_code", "")
-                        card_name = card_data.get("card_name", "Unknown")
-                        card_set = card_data.get("card_set", "Unknown")
+                        card_obj_meta = card_data.get("obj")
+                        if not card_obj_meta:
+                            logger.warning(f"Card data missing 'obj' field: {card_data}")
+                            continue
+
+                        card_code = card_obj_meta.id
+                        card_name = card_obj_meta.name
+                        card_set = card_obj_meta.set_id.value if hasattr(card_obj_meta.set_id, 'value') else str(card_obj_meta.set_id)
+                        rarity = card_obj_meta.rarity
 
                         # Try to extract card number from code for better image path
                         if card_code and "_" in card_code:
@@ -1150,15 +1156,6 @@ class ScreenshotProcessingWorker(QRunnable):
                         else:
                             # Fallback to name-based path
                             image_path = f"{card_set}/{card_name}.webp"
-
-                        # Extract rarity from name if possible
-                        rarity = "1D"
-                        if "(" in card_name:
-                            import re
-
-                            match = re.search(r"\(([^)]+)\)", card_name)
-                            if match:
-                                rarity = match.group(1)
 
                         # Add card (if not already exists)
                         # Note: Card table has unique_together = (("code", "set"),)
@@ -1172,10 +1169,17 @@ class ScreenshotProcessingWorker(QRunnable):
                             },
                         )
 
-                        # If card already exists but has default rarity, update it
-                        if not created and card_obj.rarity == "1D" and rarity != "1D":
-                            card_obj.rarity = rarity
-                            card_obj.save()
+                        # If card already exists but has default rarity or name, update it
+                        needs_save = False
+                        if not created:
+                            if card_obj.rarity == "1D" and rarity != "1D":
+                                card_obj.rarity = rarity
+                                needs_save = True
+                            if card_obj.name == card_obj.code and card_name != card_obj.code:
+                                card_obj.name = card_name
+                                needs_save = True
+                            if needs_save:
+                                card_obj.save()
 
                         # Add relationship between screenshot and card
                         screenshot_cards.append(
@@ -1369,6 +1373,10 @@ class CardDataLoadWorker(QRunnable):
                     )
                     return
 
+                # Skip Promo cards
+                if card.code.startswith("P-"):
+                    continue
+
                 # card.rarity is the code (e.g. "1D"), we want the display name
                 display_rarity = (
                     rarity_map.get(card.rarity, card.rarity) if card.rarity else ""
@@ -1390,33 +1398,24 @@ class CardDataLoadWorker(QRunnable):
 
             # Include cards from the master `app.names` list that may not exist in the
             # database yet so they appear with a zero count in the UI.
-            from app.names import cards as master_card_names
+            from app.names import Dex
             import re
 
-            rarity_pattern = re.compile(r"\(([^)]+)\)$")
+            dex = Dex()
+
             existing_codes = {item.get("card_code") for item in data}
-            for code, full_name in master_card_names.items():
-                if code in existing_codes:
+            for code, full_name, obj in dex.items():
+                if code in existing_codes or code.startswith("P-"):
                     continue
 
-                # Derive display name, set name and rarity from the master list
-                display_name = clean_card_name(full_name)
-                set_code = code.split("_", 1)[0] if "_" in code else ""
-                set_display_name = set_names.get(set_code, set_code) or ""
-
-                # Extract rarity code from the master name (e.g., "Bulbasaur (1D)")
-                match = rarity_pattern.search(full_name)
-                r_code = match.group(1) if match else ""
-                rarity = rarity_map.get(r_code, r_code) if r_code else ""
-
-                image_path = f"{set_code}/{code}.webp" if set_code else f"{code}.webp"
+                image_path = f"{obj.set_id.value}/{code}.webp"
 
                 data.append(
                     {
                         "card_code": code,
-                        "card_name": display_name,
-                        "set_name": set_display_name,
-                        "rarity": rarity,
+                        "card_name": obj.name,
+                        "set_name": obj.set_id.value,
+                        "rarity": obj.rarity.value,
                         "count": 0,
                         "image_path": image_path,
                     }

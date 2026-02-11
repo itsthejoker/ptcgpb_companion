@@ -210,7 +210,11 @@ class MainWindow(QMainWindow):
                 # Check for missing sets among existing folders
                 try:
                     # Fetch online set list to compare with local folders
-                    online_set_ids = CardArtDownloadWorker.fetch_online_set_ids()
+                    online_set_ids = [
+                        sid
+                        for sid in CardArtDownloadWorker.fetch_online_set_ids()
+                        if not sid.startswith("P-")
+                    ]
 
                     if not online_set_ids:
                         return
@@ -220,19 +224,23 @@ class MainWindow(QMainWindow):
                         d
                         for d in os.listdir(template_dir)
                         if os.path.isdir(template_dir / d)
+                        and not d.startswith("P-")
                     ]
                     missing_sets = [
                         sid for sid in online_set_ids if sid not in existing_sets
                     ]
 
-                    from app.names import cards as CARD_NAMES_MAP
+                    from app.names import Dex
+
+                    dex = Dex()
 
                     allowed_extensions = (".webp", ".png", ".jpg", ".jpeg")
                     missing_cards_by_set = {}
+                    all_cards = [code for code, _, _ in dex.items()]
                     for set_id in existing_sets:
                         expected_codes = [
                             code
-                            for code in CARD_NAMES_MAP.keys()
+                            for code in all_cards
                             if code.startswith(f"{set_id}_")
                         ]
                         if not expected_codes:

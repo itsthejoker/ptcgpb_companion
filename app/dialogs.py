@@ -1167,6 +1167,27 @@ class AccountCardListDialog(QDialog):
                 cost = 30000
             else:
                 return  # Cancelled
+        elif rarity in ["1D", "2D", "3D", "4D"]:
+            # Ask if it's Shared (0) or Standard
+            standard_cost = SHINEDUST_REQUIREMENTS.get(rarity, 0)
+            if standard_cost > 0:
+                msg = QMessageBox(self)
+                msg.setWindowTitle(self.tr("Select Shinedust Cost"))
+                msg.setText(self.tr("Was this card shared?"))
+                btn_shared = msg.addButton(self.tr("Shared"), QMessageBox.ButtonRole.ActionRole)
+                btn_standard = msg.addButton(
+                    f"{standard_cost:,}", QMessageBox.ButtonRole.ActionRole
+                )
+                msg.addButton(QMessageBox.StandardButton.Cancel)
+                msg.exec()
+                if msg.clickedButton() == btn_shared:
+                    cost = 0
+                elif msg.clickedButton() == btn_standard:
+                    cost = standard_cost
+                else:
+                    return  # Cancelled
+            else:
+                cost = 0
         else:
             cost = SHINEDUST_REQUIREMENTS.get(rarity, 0)
 

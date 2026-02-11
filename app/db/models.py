@@ -26,6 +26,10 @@ class CardSet(models.TextChoices):
     def name_map():
         return dict(reversed(list(dict(zip(CardSet.values, CardSet.labels)).items())))
 
+    @staticmethod
+    def set_map():
+        return dict(zip(CardSet.values, CardSet))
+
 
 def translate_set_name(set_name):
     ptcgpb_names = {
@@ -75,7 +79,9 @@ def fix_code_named_cards(logger=None):
         logger = logging.getLogger(__name__)
 
     from django.db.models import F
-    from app.names import cards as CARD_NAMES_MAP
+    from app.names import Dex
+
+    dex = Dex()
 
     code_named_cards = (
         Card.objects.filter(name=F("code"))
@@ -90,7 +96,7 @@ def fix_code_named_cards(logger=None):
     )
     fixed_count = 0
     for card in code_named_cards:
-        mapped_name = CARD_NAMES_MAP.get(card.code)
+        mapped_name = dex[card.code]
         if not mapped_name or mapped_name == card.code:
             continue
         card.name = mapped_name

@@ -1,7 +1,8 @@
 import sys
 import os
-import json
 from pathlib import Path
+from collections.abc import Callable
+
 
 # Turn off bytecode generation
 sys.dont_write_bytecode = True
@@ -11,7 +12,8 @@ import django
 
 django.setup()
 
-from app.db.models import Card
+from app.db.models import Card, CardSet
+from app.names import C
 import httpx
 
 data = httpx.get(
@@ -41,14 +43,22 @@ for count, s in enumerate(sets):
     if "PROMO" in s:
         sets[count] = s.replace("PROMO", "P")
 
-cards = {}
+cards = []
+card_set_map = CardSet.set_map()
+
+set2factory: Callable[[CardSet], str] = lambda s_id: s_id.label.lower().replace(" ", "_").replace("-", "_")
 
 for set_id in sets:
     set_cards = [c for c in data if c["set"] == set_id]
     for card in set_cards:
         card_name = card["name"].replace("’", "'")
-        cards[f"{card['set']}_{card['number']}"] = (
-            f"{card_name} ({rarity[card['rarity']].value})"
+        cards.append(
+            C(
+                card_set_map[set_id],
+                card["number"],
+                card_name,
+                rarity[card['rarity']],
+            )
         )
 
 
@@ -67,22 +77,22 @@ start_index = None
 end_index = None
 
 for index, line in enumerate(names_lines):
-    if line.lstrip().startswith("cards = {"):
+    if line.lstrip().startswith("_cards = ["):
         start_index = index
         continue
-    if start_index is not None and line.strip() == "}":
+    if start_index is not None and line.strip() == "]":
         end_index = index
         break
 
 if start_index is None or end_index is None:
-    raise RuntimeError("Unable to locate cards dictionary in app/names.py")
+    raise RuntimeError("Unable to locate cards list in app/names.py")
 
 card_lines = []
-for key in sorted(cards.keys(), key=sort_key):
+for key in cards:
     card_lines.append(
-        f"    {json.dumps(key, ensure_ascii=False)}: {json.dumps(cards[key], ensure_ascii=False)},\n"
+        f"""    {set2factory(key.set_id)}({key.number}, "{key.name}", {str(key).split('rarity=')[1].strip(')')}),\n"""
     )
-card_lines.append("}\n")
+card_lines.append("]\n")
 
 updated_lines = names_lines[: start_index + 1] + card_lines + names_lines[end_index + 1 :]
 names_path.write_text("".join(updated_lines), encoding="utf-8")

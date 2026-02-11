@@ -4,6 +4,7 @@ Card Counter Image Processing Module
 Image processing functionality for the Card Counter application.
 This module provides card identification from screenshots using OpenCV.
 """
+import typing
 
 import cv2
 import numpy as np
@@ -17,6 +18,9 @@ import threading
 
 logger = logging.getLogger(__name__)
 
+if typing.TYPE_CHECKING:
+    from app.names import C
+
 
 class ImageProcessor:
     """
@@ -28,9 +32,9 @@ class ImageProcessor:
     _init_lock = threading.Lock()
     _phashes_lock = threading.Lock()
 
-    def __init__(self, card_imgs_dir: str = "card_imgs"):
+    def __init__(self, card_imgs_dir: str = None):
         """Initialize the image processor"""
-        self.card_imgs_dir = card_imgs_dir
+        self.card_imgs_dir = card_imgs_dir or os.path.join("resources", "card_imgs")
         self._lock = threading.RLock()
 
         with ImageProcessor._init_lock:
@@ -47,7 +51,11 @@ class ImageProcessor:
             self.template_vectors = (
                 {}
             )  # {set_name: {'matrix': np.array, 'metadata': list}}
+            # 367x512 is what the image size actually is
             self.match_width, self.match_height = 92, 128
+            # ratio: 1.395095367847411
+            # self.match_width, self.match_height = 150, 209
+            # self.match_width, self.match_height = 367, 512
 
             if self.card_database:
                 self._prepare_templates()
@@ -56,6 +64,14 @@ class ImageProcessor:
         """Load pHashes from phashes.json if it exists"""
         hash_file = os.path.join(self.card_imgs_dir, "phashes.json")
         if not os.path.exists(hash_file):
+            return False
+        # Check to see if the file was created before 2026-02-11. If so,
+        # delete it and recreate.
+        # phashes created before this date are malformed and will cause
+        # issues.
+        if os.stat(hash_file).st_mtime < 1770814800:
+            logger.info(f"Deleting malformed pHashes file: {hash_file}")
+            os.remove(hash_file)
             return False
 
         try:
@@ -125,47 +141,42 @@ class ImageProcessor:
 
         return card_db
 
-    def _load_card_names(self) -> Dict[str, str]:
+    def _load_card_names(self) -> "Dex":
         """Load card names mapping from names.py"""
-        try:
-            from app import names
+        from app.names import Dex
 
-            return names.cards
-        except ImportError:
-            print("names.py not found, using original card names")
-            return {}
+        return Dex()
 
-    def _get_display_name(self, card_name: str, set_name: str) -> str:
+    def _get_card_obj(self, card_name: str, set_name: str) -> "C":
         """Get the display name for a card using the names mapping"""
         # Try to find the card in the names mapping
 
         # 1. Try the card_name directly (if it already includes the set prefix)
-        if card_name in self.card_names:
+        if self.card_names[card_name]:
             return self.card_names[card_name]
 
         # 2. Try set_name + "_" + card_name
         # The format in names.py is like "A1_1" for set A1, card 1
         mapping_key = f"{set_name}_{card_name}"
 
-        if mapping_key in self.card_names:
-            return self.card_names[mapping_key]
-        else:
-            # Fallback to original name if not found
-            return card_name
+        return self.card_names[mapping_key]
+
 
     def _load_and_preprocess_card(self, card_path: str) -> np.ndarray:
         """Load and preprocess a single card image at full resolution"""
         try:
-            # Load image using PIL and convert to RGB
-            with Image.open(card_path) as pil_image:
-                # Convert to numpy array
-                image = np.array(pil_image)
-
-            # Convert to RGB if needed (from RGBA or grayscale)
-            if len(image.shape) == 3 and image.shape[2] == 4:  # RGBA
-                image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
-            elif len(image.shape) == 2:  # Grayscale
-                image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+            # # Load image using PIL and convert to RGB
+            # with Image.open(card_path) as pil_image:
+            #     background = Image.new('RGB', pil_image.size, (255, 255, 255))
+            #     background.paste(pil_image, mask=pil_image.split()[3])
+            #     # Convert to numpy array
+            #     image = np.array(background)
+            image = cv2.imread(card_path, cv2.IMREAD_COLOR)
+            # # Convert to RGB if needed (from RGBA or grayscale)
+            # if len(image.shape) == 3 and image.shape[2] == 4:  # RGBA
+            #     image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
+            # elif len(image.shape) == 2:  # Grayscale
+            #     image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
 
             # Keep the card at its original resolution for better matching accuracy
             # Full-size cards are typically 367x512 pixels
@@ -177,17 +188,7 @@ class ImageProcessor:
     def _preprocess_screenshot(self, screenshot_path: str) -> np.ndarray:
         """Load and preprocess a screenshot image"""
         try:
-            # Load image
-            with Image.open(screenshot_path) as pil_image:
-                image = np.array(pil_image)
-
-            # Convert to RGB if needed (from RGBA)
-            if len(image.shape) == 3 and image.shape[2] == 4:  # RGBA
-                image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
-            elif len(image.shape) == 2:  # Grayscale
-                image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-
-            return image
+            return cv2.imread(screenshot_path, cv2.IMREAD_COLOR)
         except Exception as e:
             print(f"Error processing screenshot {screenshot_path}: {e}")
             return None
@@ -314,6 +315,7 @@ class ImageProcessor:
         Returns:
             List[Dict]: List of identified cards with positions and confidence scores
         """
+
         with self._lock:
             if not self.phash_templates:
                 raise RuntimeError(
@@ -337,10 +339,14 @@ class ImageProcessor:
                 num_cards = len(card_positions)
                 logger.debug(f"Detected {num_cards} card positions")
 
+                excluded_sets = ["P-A", "P-B"]
+
                 # If 4 cards, it's always A4b / Deluxe Pack Ex
                 # If 5 or 6 cards, it's guaranteed NOT to be A4b
                 forced_set = "A4b" if num_cards == 4 else None
-                excluded_sets = ["A4b"] if num_cards in (5, 6) else []
+
+                if num_cards in (5, 6):
+                    excluded_sets.append("A4b")
 
                 if forced_set:
                     logger.debug(
@@ -367,23 +373,26 @@ class ImageProcessor:
                         card_region,
                         exclude_sets=excluded_sets,
                         force_detailed=True,
+                        force_set=forced_set,
                     )
 
-                    if best_match and best_match["confidence"] > 0.2:
+                    # The vast majority of the cards will be between 80 and 90% confident.
+                    # However, there are a few where even though the system has identified
+                    # it correctly, confidence is still low... push it through anyway, and
+                    # we'll make sure we have a test case for it.
+                    if best_match and best_match["confidence"] > 0.6:
                         # Get the display name for this card
-                        display_name = self._get_display_name(
+                        card_obj: C = self._get_card_obj(
                             best_match["card_name"], best_match["card_set"]
                         )
                         logger.debug(
-                            f"Card {i+1}: {display_name} (confidence: {best_match['confidence']:.2f})"
+                            f"Card {i+1}: {card_obj.name} (confidence: {best_match['confidence']:.2f})"
                         )
 
                         detected_cards.append(
                             {
                                 "position": i + 1,
-                                "card_code": best_match["card_name"],
-                                "card_name": display_name,
-                                "card_set": best_match["card_set"],
+                                "obj": card_obj,
                                 "confidence": best_match["confidence"],
                                 "x": x,
                                 "y": y,
@@ -393,6 +402,67 @@ class ImageProcessor:
                         )
                     else:
                         logger.debug(f"No card match found for position {i+1}")
+
+                # Post-processing: Ensure all cards are from the same set
+                # If we didn't force a set initially, detect the dominant set and re-evaluate outliers
+                if not forced_set and len(detected_cards) > 1:
+                    # Count cards by set
+                    set_counts = {}
+                    for card in detected_cards:
+                        card_set = card["obj"].set_id
+                        set_counts[card_set] = set_counts.get(card_set, 0) + 1
+                    
+                    # Find the dominant set (most common)
+                    dominant_set = max(set_counts, key=set_counts.get)
+                    dominant_count = set_counts[dominant_set]
+                    
+                    logger.debug(f"Dominant set: {dominant_set} with {dominant_count} cards")
+                    logger.debug(f"Set distribution: {set_counts}")
+                    
+                    # If there are outliers (cards from different sets), re-evaluate them
+                    outliers = [card for card in detected_cards if card["obj"].set_id != dominant_set]
+                    
+                    if outliers:
+                        logger.debug(f"Found {len(outliers)} outlier(s) not matching dominant set {dominant_set}")
+                        
+                        # Re-evaluate each outlier by forcing search to dominant set
+                        for outlier in outliers:
+                            pos = outlier["position"]
+                            x, y, w, h = outlier["x"], outlier["y"], outlier["width"], outlier["height"]
+                            card_region = screenshot[y : y + h, x : x + w]
+                            
+                            logger.debug(f"Re-evaluating card at position {pos} (was {outlier['obj'].id}, forcing to {dominant_set})")
+                            
+                            # Re-match with forced set
+                            best_match = self._find_best_card_match(
+                                card_region,
+                                force_detailed=True,
+                                force_set=dominant_set,
+                            )
+                            
+                            if best_match and best_match["confidence"] > 0.5:
+                                card_obj: C = self._get_card_obj(
+                                    best_match["card_name"], best_match["card_set"]
+                                )
+                                logger.debug(
+                                    f"Re-evaluated card {pos}: {card_obj.name} (confidence: {best_match['confidence']:.2f})"
+                                )
+                                
+                                # Update the card in detected_cards
+                                for i, card in enumerate(detected_cards):
+                                    if card["position"] == pos:
+                                        detected_cards[i] = {
+                                            "position": pos,
+                                            "obj": card_obj,
+                                            "confidence": best_match["confidence"],
+                                            "x": x,
+                                            "y": y,
+                                            "width": w,
+                                            "height": h,
+                                        }
+                                        break
+                            else:
+                                logger.debug(f"Re-evaluation failed for position {pos}")
 
                 logger.debug(f"Found {len(detected_cards)} cards in {image_path}")
                 return detected_cards
@@ -530,6 +600,7 @@ class ImageProcessor:
         card_region: np.ndarray,
         force_detailed: bool = False,
         exclude_sets: List[str] = None,
+        force_set: str = None,
     ) -> Dict[str, Any]:
         """
         Find the best matching card in the database for a card region
@@ -538,6 +609,7 @@ class ImageProcessor:
             card_region: Card image region as numpy array
             force_detailed: If True, always perform detailed search regardless of quick search confidence
             exclude_sets: If provided, do not search within these sets
+            force_set: If provided, only search within this specific set
 
         Returns:
             Dict: Best match result with card_name, card_set, and confidence
@@ -564,96 +636,54 @@ class ImageProcessor:
         quick_best_match = None
         quick_best_score = -1
 
-        if self.phash_matrix is not None:
-            # Filter indices based on exclude_sets
-            if exclude_sets:
-                indices = [
-                    i
-                    for i, m in enumerate(self.phash_metadata)
-                    if m[0] not in exclude_sets
-                ]
-            else:
-                indices = range(len(self.phash_metadata))
-
-            if indices:
-                sub_matrix = self.phash_matrix[indices]
-                q_hash = region_hash.hash.flatten()
-                # Hamming distance: count non-matching bits
-                distances = np.count_nonzero(sub_matrix != q_hash, axis=1)
-                scores = 1.0 - (distances / 64.0)
-
-                for i, score in enumerate(scores):
-                    meta_idx = indices[i]
-                    s_name, c_name = self.phash_metadata[meta_idx]
-
-                    if score > set_scores.get(s_name, 0):
-                        set_scores[s_name] = score
-
-                    if score > quick_best_score:
-                        quick_best_score = score
-                        quick_best_match = {
-                            "card_name": c_name,
-                            "card_set": s_name,
-                            "confidence": float(score),
-                        }
-        else:
-            # Fallback to slow loop if matrix not built (should not happen)
-            search_sets = [
-                s
-                for s in self.phash_templates.keys()
-                if s not in (exclude_sets or [])
+        # Filter indices based on force_set or exclude_sets
+        if force_set:
+            # Only search within the forced set
+            indices = [
+                i
+                for i, m in enumerate(self.phash_metadata)
+                if m[0] == force_set
             ]
+        elif exclude_sets:
+            indices = [
+                i
+                for i, m in enumerate(self.phash_metadata)
+                if m[0] not in exclude_sets
+            ]
+        else:
+            indices = range(len(self.phash_metadata))
 
-            for set_name in search_sets:
-                if set_name not in self.phash_templates:
-                    continue
+        sub_matrix = self.phash_matrix[indices]
+        q_hash = region_hash.hash.flatten()
+        # Hamming distance: count non-matching bits
+        distances = np.count_nonzero(sub_matrix != q_hash, axis=1)
+        scores = 1.0 - (distances / 64.0)
 
-                cards = self.phash_templates[set_name]
-                for card_name, template_hash in cards.items():
-                    # Hamming distance: lower is better. Max distance is 64 for 8x8 hash.
-                    distance = region_hash - template_hash
-                    # Convert to a confidence-like score (0 to 1)
-                    score = 1.0 - (distance / 64.0)
+        # Collect all pHash matches with their scores
+        phash_matches = []
+        for i, score in enumerate(scores):
+            meta_idx = indices[i]
+            s_name, c_name = self.phash_metadata[meta_idx]
+            phash_matches.append((s_name, c_name, float(score)))
 
-                    if score > set_scores.get(set_name, 0):
-                        set_scores[set_name] = score
+            if score > set_scores.get(s_name, 0):
+                set_scores[s_name] = score
 
-                    if score > quick_best_score:
-                        quick_best_score = score
-                        quick_best_match = {
-                            "card_name": card_name,
-                            "card_set": set_name,
-                            "confidence": score,
-                        }
+            if score > quick_best_score:
+                quick_best_score = score
+                quick_best_match = {
+                    "card_name": c_name,
+                    "card_set": s_name,
+                    "confidence": float(score),
+                }
+        
+        # Sort all matches by score
+        phash_matches.sort(key=lambda x: x[2], reverse=True)
 
-        # Optimization: If quick search is extremely confident, skip detailed search
-        # Only if not forced to do a detailed search
-        CONFIDENCE_THRESHOLD = 0.92  # Increased threshold for higher certainty
-        if (
-            not force_detailed
-            and quick_best_match
-            and quick_best_match["confidence"] >= CONFIDENCE_THRESHOLD
-        ):
-            logger.debug(
-                f"Quick search extremely confident ({quick_best_match['confidence']:.3f}), skipping detailed search"
-            )
-            return quick_best_match
-
-        # Stage 2: Detailed search at full resolution
-        # Determine candidate sets from quick search
-        candidate_sets = []
-        if set_scores:
-            # Sort sets by their best card score
-            sorted_sets = sorted(set_scores.items(), key=lambda x: x[1], reverse=True)
-            # Take top sets that are close to the best score
-            top_phash_score = sorted_sets[0][1]
-            for s_name, s_score in sorted_sets:
-                # Include set if it's in top 3 or within 0.05 of the top score
-                if len(candidate_sets) < 3 or s_score >= top_phash_score - 0.05:
-                    candidate_sets.append(s_name)
-                # Cap at 5 sets to maintain performance
-                if len(candidate_sets) >= 5:
-                    break
+        # Stage 2: Hybrid search combining pHash and detailed correlation
+        # Use pHash to identify candidate sets, then use weighted scoring
+        if not set_scores:
+            return None
 
         # Upscale card region to match matching resolution for detailed matching
         upscaled_region = cv2.resize(card_region, (self.match_width, self.match_height))
@@ -665,71 +695,83 @@ class ImageProcessor:
         if q_norm > 0:
             q_vec /= q_norm
 
-        # Detailed search in candidate sets
+        # Get top candidate sets (top 3 or within 0.05 of best)
+        # If force_set is provided, only search within that set
+        if force_set:
+            candidate_sets = [force_set] if force_set in set_scores else []
+            if not candidate_sets:
+                return None  # Forced set has no matches
+            sorted_sets = [(force_set, set_scores[force_set])]
+        else:
+            sorted_sets = sorted(set_scores.items(), key=lambda x: x[1], reverse=True)
+            top_set_score = sorted_sets[0][1]
+            candidate_sets = []
+            for s_name, s_score in sorted_sets:
+                if len(candidate_sets) < 3 or s_score >= top_set_score - 0.05:
+                    candidate_sets.append(s_name)
+                if len(candidate_sets) >= 5:
+                    break
+
+        # Build a map of card -> pHash score for weighting
+        phash_score_map = {}
+        for s_name, c_name, score in phash_matches:
+            key = f"{s_name}_{c_name}"
+            phash_score_map[key] = score
+
+        # Search each candidate set and compute hybrid scores
+        best_match = None
+        best_hybrid_score = -1
+        best_set_name = sorted_sets[0][0]  # Remember the best pHash set for tie-breaking
+        
         for search_set in candidate_sets:
-            if search_set not in self.template_vectors:
-                # Fallback if vectorized data not available
-                if (
-                    search_set in self.color_templates
-                    and self.color_templates[search_set]
-                ):
-                    for card_name, template_color in self.color_templates[
-                        search_set
-                    ].items():
-                        try:
-                            # Resize template if it doesn't match
-                            if template_color.shape[:2][::-1] != (
-                                self.match_width,
-                                self.match_height,
-                            ):
-                                template_color = cv2.resize(
-                                    template_color,
-                                    (self.match_width, self.match_height),
-                                )
-
-                            result = cv2.matchTemplate(
-                                upscaled_region,
-                                template_color,
-                                cv2.TM_CCOEFF_NORMED,
-                            )
-                            _, max_val, _, _ = cv2.minMaxLoc(result)
-
-                            if max_val > best_score:
-                                best_score = max_val
-                                best_match = {
-                                    "card_name": card_name,
-                                    "card_set": search_set,
-                                    "confidence": float(max_val),
-                                }
-                        except cv2.error:
-                            continue
-                continue
-
             data = self.template_vectors[search_set]
             matrix = data["matrix"]
             metadata = data["metadata"]
 
-            # Matrix-vector multiplication for all cards in set
-            # This computes normalized correlation (TM_CCOEFF_NORMED)
-            # because both matrix and q_vec are zero-centered and unit-normalized.
-            scores = matrix @ q_vec
+            # Compute correlation scores for all cards in set
+            corr_scores = matrix @ q_vec
 
-            max_idx = np.argmax(scores)
-            max_val = scores[max_idx]
+            # Compute hybrid scores: weighted combination of pHash and correlation
+            # pHash weight: 0.87, Correlation weight: 0.13
+            # High pHash weight for set identification, correlation for card selection
+            for i, card_name in enumerate(metadata):
+                key = f"{search_set}_{card_name}"
+                phash_score = phash_score_map.get(key, 0.0)
+                corr_score = corr_scores[i]
+                
+                # Hybrid score: emphasize pHash strongly
+                hybrid_score = 0.87 * phash_score + 0.13 * corr_score
+                
+                # Update best match with improved tie-breaking:
+                # 1. Higher hybrid score wins
+                # 2. If very close (within 0.005), prefer card from best pHash set
+                # 3. Within same set, prefer higher correlation for visual accuracy
+                is_better = False
+                if hybrid_score > best_hybrid_score + 0.005:  # Clear winner
+                    is_better = True
+                elif abs(hybrid_score - best_hybrid_score) <= 0.005:  # Very close match
+                    # Tie-breaking: prefer best pHash set first
+                    if search_set == best_set_name and (best_match is None or best_match["card_set"] != best_set_name):
+                        is_better = True
+                    # Within same set, prefer higher correlation
+                    elif search_set == best_match.get("card_set") and corr_score > best_match.get("corr_score", 0):
+                        is_better = True
+                
+                if is_better:
+                    best_hybrid_score = hybrid_score
+                    best_match = {
+                        "card_name": card_name,
+                        "card_set": search_set,
+                        "confidence": float(hybrid_score),  # Use hybrid score as confidence
+                        "phash_score": float(phash_score),
+                        "corr_score": float(corr_score),
+                        "hybrid_score": float(hybrid_score),
+                    }
 
-            if max_val > best_score:
-                best_score = max_val
-                best_match = {
-                    "card_name": metadata[max_idx],
-                    "card_set": search_set,
-                    "confidence": float(max_val),
-                }
-
-        # If detailed search found a better match or if we haven't found anything yet
         if best_match:
             return best_match
 
-        # Fallback to quick search result if detailed search failed but quick search had something
+        # Fallback to quick search result
         if quick_best_match and quick_best_match["confidence"] > 0.2:
             return quick_best_match
 
