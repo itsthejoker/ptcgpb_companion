@@ -541,7 +541,7 @@ class MainWindow(QMainWindow):
         self._update_status_message(status)
 
     def _on_update_download_progress(self, current: int, total: int):
-        if current % 5 == 0:
+        if current % 100 == 0:
             self._update_progress(
                 current,
                 total,
@@ -551,6 +551,7 @@ class MainWindow(QMainWindow):
             )
 
     def _on_update_download_result(self, result: dict):
+        self._update_status_message("Application will restart after the update is applied.")
         try:
             extract_dir = result.get("extract_dir")
             if not extract_dir:
