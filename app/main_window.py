@@ -392,7 +392,7 @@ class MainWindow(QMainWindow):
             LastScan.objects.create()
             scan = True
         # change this based on any time we need to force a rescan
-        if last_scan is not None and last_scan < datetime(2026, 2, 3, tzinfo=UTC):
+        if last_scan is not None and last_scan < datetime(2026, 1, 1, tzinfo=UTC):
             LastScan.objects.first().set_now()
             scan = True
 
