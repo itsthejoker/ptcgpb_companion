@@ -881,11 +881,13 @@ class DiagnoseImageDialog(QDialog):
                     confidence_text = ""
                 else:
                     status = self.tr("Matched")
-                    name = card.get("card_name", self.tr("Unknown"))
-                    card_id = f"{card.get('card_set', '')}_{card.get('card_code', '')}"
-                    set_prefix = f"{card.get('card_set', '')}_"
-                    if card_id.startswith(f"{set_prefix}{set_prefix}"):
-                        card_id = card_id[len(set_prefix) :]
+                    card_obj = card.get("obj")
+                    if card_obj:
+                        name = card_obj.name
+                        card_id = card_obj.id
+                    else:
+                        name = self.tr("Unknown")
+                        card_id = ""
                     confidence = card.get("confidence", 0)
                     confidence_text = f"{confidence:.4f}"
 

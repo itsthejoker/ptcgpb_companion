@@ -1400,6 +1400,9 @@ class MainWindow(QMainWindow):
         RARITY_MAP = dict(zip(Card.Rarity.values, Card.Rarity.labels))
         SET_MAP = CardSet.name_map()
 
+        rarity_display_names = set(RARITY_MAP.values())
+        set_display_names = set(SET_MAP.values())
+
         try:
             # Block signals during bulk update
             self.set_filter.blockSignals(True)
@@ -1408,8 +1411,9 @@ class MainWindow(QMainWindow):
             # Update set filter
             sets = set()
             for card in card_data:
-                if card.get("set_name"):
-                    sets.add(card["set_name"])
+                set_name = card.get("set_name")
+                if set_name and set_name in set_display_names:
+                    sets.add(set_name)
 
             current_set = self.set_filter.currentText()
             self.set_filter.clear()
@@ -1431,8 +1435,9 @@ class MainWindow(QMainWindow):
             # Update rarity filter
             rarities = set()
             for card in card_data:
-                if card.get("rarity"):
-                    rarities.add(card["rarity"])
+                rarity = card.get("rarity")
+                if rarity and rarity in rarity_display_names:
+                    rarities.add(rarity)
 
             current_rarity = self.rarity_filter.currentText()
             self.rarity_filter.clear()

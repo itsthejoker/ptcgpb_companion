@@ -1421,12 +1421,20 @@ class CardDataLoadWorker(QRunnable):
 
                 image_path = f"{obj.set_id.value}/{code}.webp"
 
+                # Map rarity and set to display names
+                display_rarity = (
+                    rarity_map.get(obj.rarity.value, obj.rarity.value)
+                    if obj.rarity
+                    else ""
+                )
+                display_set = set_names.get(obj.set_id.value, obj.set_id.value)
+
                 data.append(
                     {
                         "card_code": code,
                         "card_name": obj.name,
-                        "set_name": obj.set_id.value,
-                        "rarity": obj.rarity.value,
+                        "set_name": display_set,
+                        "rarity": display_rarity,
                         "count": 0,
                         "image_path": image_path,
                     }
