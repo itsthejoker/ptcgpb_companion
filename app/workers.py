@@ -555,7 +555,7 @@ class CardArtDownloadWorker(QRunnable):
                             f.write(content)
 
                         card_code = f"{set_id}_{card_num}"
-                        raw_name = dex.get(card_code, card_code)
+                        raw_name = dex.get(card_code, card_code).name
 
                         display_name = raw_name
                         display_rarity = None
