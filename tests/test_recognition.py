@@ -164,16 +164,16 @@ cards_to_test = [
         d["B2_138"],
         None,
     ),
-    # CardImg(
-    #     "img_9.png",
-    #     CardSet.MEGA_RISING,
-    #     d["B1_77"],
-    #     d["B1_181"],
-    #     d["B1_261"],
-    #     d["B1_111"],
-    #     d["B1_148"],
-    #     d["B1_303"],
-    # ),
+    CardImg(
+        "img_9.png",
+        CardSet.MEGA_RISING,
+        d["B1_77"],
+        d["B1_181"],
+        d["B1_216"],
+        d["B1_111"],
+        d["B1_148"],
+        d["B1_303"],
+    ),
     CardImg(
         "img_10.png",
         CardSet.MEGA_RISING,
@@ -240,6 +240,26 @@ def test_recognition(processor, card_img):
         assert card_obj.id == str(
             expected_card.id
         ), f"Card {expected_card.id} misidentified as {card_obj.id} for {card_img.path}"
+
+
+def test_img_9_slot6_color_disambiguation(processor):
+    image_path = TEST_IMAGE_DIR / "img_9.png"
+    screenshot = processor._preprocess_screenshot(str(image_path))
+    assert screenshot is not None, "Failed to preprocess screenshot img_9.png"
+
+    positions = processor._detect_card_positions(screenshot)
+    assert len(positions) >= 6, "Expected at least 6 card positions for img_9.png"
+
+    x, y, w, h = positions[5]
+    card_region = screenshot[y : y + h, x : x + w]
+
+    match = processor._find_best_card_match(
+        card_region, force_detailed=True, force_set="B1"
+    )
+    assert match is not None, "Expected a match for img_9 slot 6"
+
+    card_obj = processor._get_card_obj(match["card_name"], match["card_set"])
+    assert card_obj.id == "B1_303", f"Expected B1_303, got {card_obj.id}"
 
 
 def _get_expected_slots(card_img: CardImg, slot_count: int) -> list[Card | None]:

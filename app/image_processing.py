@@ -288,6 +288,7 @@ class ImageProcessor:
         )
         for set_name, cards in self.color_templates.items():
             vectors = []
+            border_colors = []
             metadata = []
             for card_name, color_img in cards.items():
                 # Normalize (already resized in _prepare_templates)
@@ -297,13 +298,31 @@ class ImageProcessor:
                 if norm > 0:
                     vec /= norm
                 vectors.append(vec)
+                border_colors.append(self._compute_border_mean(color_img))
                 metadata.append(card_name)
 
             if vectors:
                 self.template_vectors[set_name] = {
                     "matrix": np.array(vectors),
+                    "border_colors": np.array(border_colors, dtype=np.float32),
                     "metadata": metadata,
                 }
+
+    def _compute_border_mean(
+        self, image: np.ndarray, border_ratio: float = 0.15
+    ) -> np.ndarray:
+        height, width = image.shape[:2]
+        border = int(min(height, width) * border_ratio)
+        if border <= 0:
+            return np.mean(image.reshape(-1, 3), axis=0)
+
+        mask = np.zeros((height, width), dtype=bool)
+        mask[:border, :] = True
+        mask[-border:, :] = True
+        mask[:, :border] = True
+        mask[:, -border:] = True
+
+        return image[mask].mean(axis=0)
 
     def process_screenshot(self, image_path: str) -> List[Dict[str, Any]]:
         """
@@ -743,6 +762,7 @@ class ImageProcessor:
         q_norm = np.linalg.norm(q_vec)
         if q_norm > 0:
             q_vec /= q_norm
+        query_border = self._compute_border_mean(upscaled_region)
 
         # Get top candidate sets (top 3 or within 0.05 of best)
         if force_set:
@@ -768,10 +788,18 @@ class ImageProcessor:
         for search_set in candidate_sets:
             data = self.template_vectors[search_set]
             matrix = data["matrix"]
+            border_colors = data.get("border_colors")
             metadata = data["metadata"]
 
             # Vectorized correlation scores
             corr_scores = matrix @ q_vec
+            if border_colors is None:
+                border_scores = np.zeros_like(corr_scores)
+            else:
+                color_diffs = np.linalg.norm(border_colors - query_border, axis=1)
+                max_color_distance = np.sqrt(3 * (255.0**2))
+                border_scores = 1.0 - (color_diffs / max_color_distance)
+                border_scores = np.clip(border_scores, 0.0, 1.0)
 
             # Vectorized pHash scores lookup
             phash_scores = np.array(
@@ -780,7 +808,7 @@ class ImageProcessor:
             )
 
             # Vectorized hybrid scores
-            hybrid_scores = 0.87 * phash_scores + 0.13 * corr_scores
+            hybrid_scores = 0.60 * phash_scores + 0.15 * corr_scores + 0.25 * border_scores
 
             # Find best in this set
             best_idx = int(np.argmax(hybrid_scores))
