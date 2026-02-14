@@ -425,8 +425,15 @@ class ImageProcessor:
                 # Count cards by set
                 set_counts = {}
                 for card in detected_cards:
-                    card_set = card["obj"].set_id
-                    set_counts[card_set] = set_counts.get(card_set, 0) + 1
+                    # Use set_id.value if it's an enum member
+                    card_obj = card.get("obj")
+                    if card_obj and hasattr(card_obj.set_id, "value"):
+                        card_set = card_obj.set_id.value
+                    else:
+                        card_set = str(card_obj.set_id) if card_obj else None
+                    
+                    if card_set:
+                        set_counts[card_set] = set_counts.get(card_set, 0) + 1
 
                 # Find the sets with the maximum count
                 max_count = max(set_counts.values())
@@ -500,11 +507,19 @@ class ImageProcessor:
                 print(f"Set distribution: {set_counts}")
 
                 # If there are outliers (cards from different sets), re-evaluate them
-                outliers = [
-                    card
-                    for card in detected_cards
-                    if card["obj"].set_id != dominant_set
-                ]
+                outliers = []
+                for card in detected_cards:
+                    card_obj = card.get("obj")
+                    if not card_obj:
+                        continue
+                    
+                    card_set = (
+                        card_obj.set_id.value
+                        if hasattr(card_obj.set_id, "value")
+                        else str(card_obj.set_id)
+                    )
+                    if card_set != dominant_set:
+                        outliers.append(card)
 
                 if outliers:
                     print(

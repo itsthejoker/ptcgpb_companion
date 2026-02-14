@@ -2685,11 +2685,20 @@ class Dex:
         return self.get_by_id(item)
 
     def get_by_id(self, card_id: str):
+        if not isinstance(card_id, str):
+            raise TypeError("Card ID must be a string")
+
         pieces = card_id.split("_")
+        if len(pieces) < 2:
+            raise TypeError("Card ID must be in the format of {set_id}_{number}")
+
         if len(pieces) == 2:
-            set_id, number = pieces
+            set_id, number_str = pieces
         else:
-            set_id, number = pieces[-2:]
+            set_id, number_str = pieces[-2:]
+        
+        number = int(number_str)
+
         return next(
             filter(
                 lambda card: card.set_id == set_id and card.number == int(number),

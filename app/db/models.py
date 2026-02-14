@@ -96,10 +96,14 @@ def fix_code_named_cards(logger=None):
     )
     fixed_count = 0
     for card in code_named_cards:
-        mapped_name = dex[card.code]
-        if not mapped_name or mapped_name == card.code:
+        dex_card = dex[card.code]
+        if not dex_card:
             continue
-        card.name = mapped_name
+        
+        card.name = dex_card.name
+        if not card.rarity or card.rarity == Card.Rarity.COMMON:
+            card.rarity = dex_card.rarity
+        
         card.save()
         fixed_count += 1
 
