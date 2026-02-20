@@ -44,6 +44,7 @@ deluxe_pack_ex = set_builder(S.DELUXE_PACK_EX)
 mega_rising = set_builder(S.MEGA_RISING)
 crimson_blaze = set_builder(S.CRIMSON_BLAZE)
 fantastical_parade = set_builder(S.FANTASTICAL_PARADE)
+paldean_wonders = set_builder(S.PALDEAN_WONDERS)
 
 # DO NOT UPDATE MANUALLY. Use ./names_builder.py
 _cards = [
