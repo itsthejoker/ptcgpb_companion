@@ -16,7 +16,7 @@ from app.names import C
 import httpx
 
 data = httpx.get(
-    "https://raw.githubusercontent.com/flibustier/pokemon-tcg-pocket-database/refs/heads/main/dist/cards.json"
+    "https://raw.githubusercontent.com/flibustier/pokemon-tcg-pocket-database/refs/heads/main/dist/cards.no-image.min.json"
 ).json()
 sets = list({i["set"] for i in data})
 sets.sort()
