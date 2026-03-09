@@ -92,7 +92,10 @@ class CardModel(QAbstractTableModel):
         is_ascending = order == Qt.SortOrder.AscendingOrder
 
         def sort_key(item):
-            if column == 1:  # Card
+            if column == 0:  # Art — sort by set code, then numeric index within set
+                set_code, card_num = item.get("card_code", "A_0").lower().split("_")
+                return set_code, int(card_num)
+            elif column == 1:  # Card
                 return (item.get("card_name") or "").lower()
             elif column == 2:  # Set
                 # Sort by set name, then card name
