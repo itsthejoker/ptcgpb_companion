@@ -15,8 +15,10 @@ import json
 import uuid
 from datetime import datetime
 
-from PyQt6.QtWidgets import QMessageBox
-from PyQt6.QtCore import QSettings
+from PyQt6.QtWidgets import QComboBox, QMessageBox
+from PyQt6.QtCore import Qt, QEvent, QSettings
+from PyQt6.QtGui import QStandardItem, QStandardItemModel
+from PyQt6.QtCore import pyqtSignal
 
 from settings import BASE_DIR
 
@@ -386,3 +388,159 @@ def find_update_payload(extract_dir: str):
                 return internal_dir, exe_path
 
     return internal_dirs[0], exe_files[0]
+
+
+class CheckableComboBox(QComboBox):
+    """QComboBox where each item has a checkbox, supporting multi-selection.
+
+    Shows an 'All' entry at the top that selects/deselects every item.
+    The popup stays open while the user clicks checkboxes.
+    Emits `selectionChanged` when the checked set changes.
+    """
+
+    selectionChanged = pyqtSignal()
+
+    def __init__(self, all_text: str, parent=None):
+        super().__init__(parent)
+        self._all_text = all_text
+        self._updating = False
+        self._item_model = QStandardItemModel(self)
+        self.setModel(self._item_model)
+        self.setEditable(True)
+        self.lineEdit().setReadOnly(True)
+        self.view().viewport().installEventFilter(self)
+        self._add_all_item()
+        self._item_model.itemChanged.connect(self._on_item_changed)
+        self._update_display_text()
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def addItem(self, text: str, userData=None):  # type: ignore[override]
+        item = QStandardItem(text)
+        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(Qt.CheckState.Checked)
+        if userData is not None:
+            item.setData(userData, Qt.ItemDataRole.UserRole)
+        self._item_model.appendRow(item)
+        self._update_display_text()
+
+    def clear(self):  # type: ignore[override]
+        self._updating = True
+        try:
+            self._item_model.clear()
+            self._add_all_item()
+        finally:
+            self._updating = False
+        self._update_display_text()
+
+    def checked_items(self) -> list[str]:
+        """Return texts of all checked non-all items."""
+        return [
+            self._item_model.item(i).text()
+            for i in range(1, self._item_model.rowCount())
+            if self._item_model.item(i)
+            and self._item_model.item(i).checkState() == Qt.CheckState.Checked
+        ]
+
+    def all_items_checked(self) -> bool:
+        total = self._item_model.rowCount() - 1
+        return total == 0 or len(self.checked_items()) == total
+
+    def set_checked_items(self, items: list[str]):
+        """Check only the specified items. Empty list means all checked."""
+        self._updating = True
+        try:
+            total = self._item_model.rowCount() - 1
+            check_all = not items or len(items) >= total
+            for i in range(1, self._item_model.rowCount()):
+                item = self._item_model.item(i)
+                if item:
+                    state = (
+                        Qt.CheckState.Checked
+                        if check_all or item.text() in items
+                        else Qt.CheckState.Unchecked
+                    )
+                    item.setCheckState(state)
+            self._sync_all_item()
+            self._update_display_text()
+        finally:
+            self._updating = False
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _add_all_item(self):
+        item = QStandardItem(self._all_text)
+        item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(Qt.CheckState.Checked)
+        item.setData("__all__", Qt.ItemDataRole.UserRole)
+        self._item_model.appendRow(item)
+
+    def _sync_all_item(self):
+        total = self._item_model.rowCount() - 1
+        checked_count = sum(
+            1
+            for i in range(1, self._item_model.rowCount())
+            if self._item_model.item(i)
+            and self._item_model.item(i).checkState() == Qt.CheckState.Checked
+        )
+        all_item = self._item_model.item(0)
+        if all_item:
+            all_item.setCheckState(
+                Qt.CheckState.Checked
+                if checked_count == total
+                else Qt.CheckState.Unchecked
+            )
+
+    def _update_display_text(self):
+        checked = self.checked_items()
+        total = self._item_model.rowCount() - 1
+        if total == 0 or len(checked) == total:
+            text = self._all_text
+        elif len(checked) == 0:
+            text = "None selected"
+        elif len(checked) == 1:
+            text = checked[0]
+        else:
+            text = f"{len(checked)} selected"
+        self.lineEdit().setText(text)
+
+    def _on_item_changed(self, item: QStandardItem):
+        if self._updating:
+            return
+        self._updating = True
+        try:
+            if item.data(Qt.ItemDataRole.UserRole) == "__all__":
+                state = item.checkState()
+                for i in range(1, self._item_model.rowCount()):
+                    child = self._item_model.item(i)
+                    if child:
+                        child.setCheckState(state)
+            else:
+                self._sync_all_item()
+            self._update_display_text()
+            if not self.signalsBlocked():
+                self.selectionChanged.emit()
+        finally:
+            self._updating = False
+
+    def eventFilter(self, obj, event):  # type: ignore[override]
+        if (
+            obj == self.view().viewport()
+            and event.type() == QEvent.Type.MouseButtonRelease
+        ):
+            index = self.view().indexAt(event.pos())
+            if index.isValid():
+                item = self._item_model.item(index.row())
+                if item:
+                    new_state = (
+                        Qt.CheckState.Unchecked
+                        if item.checkState() == Qt.CheckState.Checked
+                        else Qt.CheckState.Checked
+                    )
+                    item.setCheckState(new_state)
+            return True  # consume event — keeps popup open
+        return super().eventFilter(obj, event)
