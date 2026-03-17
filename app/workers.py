@@ -7,7 +7,7 @@ This module provides QRunnable-based workers for long-running operations.
 
 from PyQt6.QtCore import QRunnable, pyqtSignal, QObject, QCoreApplication
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import csv
 import time
@@ -1451,10 +1451,19 @@ class CardDataLoadWorker(QRunnable):
             )
 
             # Lazy imports to avoid unnecessary main-thread initialization
-            from app.db.models import Card, CardSet
+            from app.db.models import Card, CardSet, ScreenshotCard
 
             rarity_map = Card.Rarity.rarity_map()
             set_names = CardSet.name_map()
+
+            cutoff = (datetime.now() - timedelta(days=14)).strftime("%Y%m%d%H%M%S")
+            tradeable_codes = set(
+                ScreenshotCard.objects.filter(
+                    screenshot__account__name__lte=cutoff
+                )
+                .values_list("card__code", flat=True)
+                .distinct()
+            )
 
             query = Card.objects.all()
             if self.account_filter:
@@ -1493,6 +1502,7 @@ class CardDataLoadWorker(QRunnable):
                     "rarity": display_rarity,
                     "count": getattr(card, "total_count", 0),
                     "image_path": card.image_path,
+                    "tradeable": card.code in tradeable_codes,
                 }
                 data.append(card_info)
 
@@ -1530,6 +1540,7 @@ class CardDataLoadWorker(QRunnable):
                         "rarity": display_rarity,
                         "count": 0,
                         "image_path": image_path,
+                        "tradeable": False,
                     }
                 )
 

@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QMessageBox,
     QProgressBar,
+    QCheckBox,
 )
 from PyQt6.QtCore import QSize, QTimer
 from PyQt6.QtGui import QAction
@@ -1007,6 +1008,10 @@ class MainWindow(QMainWindow):
         filter_layout.addWidget(QLabel(self.tr("Rarity:")))
         filter_layout.addWidget(self.rarity_filter)
 
+        # Tradeable filter
+        self.tradeable_filter = QCheckBox(self.tr("Tradeable only"))
+        filter_layout.addWidget(self.tradeable_filter)
+
         # Search box
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText(self.tr("Search cards..."))
@@ -1245,6 +1250,7 @@ class MainWindow(QMainWindow):
             self.rarity_filter.currentIndexChanged.connect(self._apply_filters)
 
             self.search_box.textChanged.connect(self._apply_filters)
+            self.tradeable_filter.stateChanged.connect(self._apply_filters)
 
             # Connect table click signal
             self.cards_table.clicked.connect(self._on_card_table_clicked)
@@ -1291,6 +1297,7 @@ class MainWindow(QMainWindow):
             getattr(self, "set_filter", None),
             getattr(self, "rarity_filter", None),
             getattr(self, "account_filter", None),
+            getattr(self, "tradeable_filter", None),
             getattr(self, "search_box", None),
             getattr(self, "refresh_cards_btn", None),
         ]:
@@ -1386,6 +1393,7 @@ class MainWindow(QMainWindow):
             getattr(self, "set_filter", None),
             getattr(self, "rarity_filter", None),
             getattr(self, "account_filter", None),
+            getattr(self, "tradeable_filter", None),
             getattr(self, "search_box", None),
             getattr(self, "refresh_cards_btn", None),
         ]:
@@ -1410,6 +1418,7 @@ class MainWindow(QMainWindow):
             getattr(self, "set_filter", None),
             getattr(self, "rarity_filter", None),
             getattr(self, "account_filter", None),
+            getattr(self, "tradeable_filter", None),
             getattr(self, "search_box", None),
             getattr(self, "refresh_cards_btn", None),
         ]:
@@ -1519,6 +1528,9 @@ class MainWindow(QMainWindow):
                     for obj in all_cards
                     if search_text in obj.get("card_name", "").lower()
                 ]
+
+            if self.tradeable_filter.isChecked():
+                all_cards = [obj for obj in all_cards if obj.get("tradeable")]
 
             # Update model with filtered data
             self.card_model.update_data(all_cards)
