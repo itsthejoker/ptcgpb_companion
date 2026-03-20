@@ -281,3 +281,11 @@ def get_last_scan():
     if LastScan.objects.count() == 0:
         return None
     return LastScan.objects.first().timestamp
+
+
+class OwnedCard(models.Model):
+    card = models.OneToOneField(Card, on_delete=models.CASCADE, related_name='ownership')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "owned_cards"
