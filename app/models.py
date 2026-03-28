@@ -159,6 +159,169 @@ class CardModel(QAbstractTableModel):
         return None
 
 
+class OwnedCardModel(QAbstractTableModel):
+    """Model for displaying all cards with ownership checkbox in QTableView"""
+
+    def __init__(self, data=None):
+        super().__init__()
+        self._data = data or []
+        self._headers = ["Art", "Card", "Set", "Have"]
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        return len(self._data)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(self._headers)
+
+    def flags(self, index):
+        base = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        if index.column() == 3:
+            return base | Qt.ItemFlag.ItemIsUserCheckable
+        return base
+
+    def data(self, index, role=Qt.ItemDataRole):
+        if not index.isValid():
+            return None
+
+        row = index.row()
+        col = index.column()
+
+        if row >= len(self._data) or col >= len(self._headers):
+            return None
+
+        card_data = self._data[row]
+
+        if role == Qt.ItemDataRole.TextAlignmentRole and col == 0:
+            return Qt.AlignmentFlag.AlignCenter
+
+        if role == Qt.ItemDataRole.CheckStateRole and col == 3:
+            return Qt.CheckState.Checked if card_data.get("owned") else Qt.CheckState.Unchecked
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            if col == 1:
+                _, card_num = card_data.get("card_code", "A_0").lower().split("_")
+                card_name = card_data.get("card_name", "Unknown")
+                return f"{card_num} | {card_name}"
+            elif col == 2:
+                return card_data.get("set_name", "Unknown")
+
+        elif role == Qt.ItemDataRole.DecorationRole and col == 0:
+            image_path = card_data.get("image_path")
+            card_code = card_data.get("card_code")
+            resolved_path = self._find_card_image(card_code, image_path)
+            if resolved_path and os.path.exists(resolved_path):
+                return QIcon(str(resolved_path))
+
+        elif role == Qt.ItemDataRole.ToolTipRole:
+            tooltip = f"{card_data.get('card_name', 'Unknown')}\n"
+            tooltip += f"Set: {card_data.get('set_name', 'Unknown')}\n"
+            tooltip += f"Owned: {'Yes' if card_data.get('owned') else 'No'}"
+            return tooltip
+
+        return None
+
+    def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
+        if not index.isValid() or index.column() != 3:
+            return False
+        if role != Qt.ItemDataRole.CheckStateRole:
+            return False
+
+        from app.db.models import Card, OwnedCard
+
+        card_data = self._data[index.row()]
+        card_code = card_data.get("card_code")
+        card = Card.objects.filter(code=card_code).first()
+        if not card:
+            set_code = card_code.split("_")[0] if card_code and "_" in card_code else None
+            card, _ = Card.objects.get_or_create(
+                code=card_code,
+                defaults={
+                    "name": card_data.get("card_name"),
+                    "set": set_code,
+                    "rarity": card_data.get("rarity"),
+                },
+            )
+
+        checked = value == Qt.CheckState.Checked.value or value == Qt.CheckState.Checked
+        if checked:
+            OwnedCard.objects.get_or_create(card=card)
+            card_data["owned"] = True
+        else:
+            OwnedCard.objects.filter(card=card).delete()
+            card_data["owned"] = False
+
+        self.dataChanged.emit(index, index, [Qt.ItemDataRole.CheckStateRole])
+        return True
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole):
+        if (
+            role == Qt.ItemDataRole.DisplayRole
+            and orientation == Qt.Orientation.Horizontal
+        ):
+            if 0 <= section < len(self._headers):
+                return self._headers[section]
+        return None
+
+    def update_data(self, new_data):
+        self.beginResetModel()
+        self._data = new_data
+        self.endResetModel()
+
+    def sort(self, column, order=Qt.SortOrder.AscendingOrder):
+        self.layoutAboutToBeChanged.emit()
+        is_ascending = order == Qt.SortOrder.AscendingOrder
+
+        def sort_key(item):
+            if column == 0:
+                set_code, card_num = item.get("card_code", "A_0").lower().split("_")
+                return set_code, int(card_num) if card_num.isdigit() else 0
+            elif column == 1:
+                return (item.get("card_name") or "").lower()
+            elif column == 2:
+                return (
+                    (item.get("set_name") or "").lower(),
+                    (item.get("card_name") or "").lower(),
+                )
+            elif column == 3:
+                return (0 if item.get("owned") else 1, (item.get("card_name") or "").lower())
+            return ""
+
+        self._data.sort(key=sort_key, reverse=not is_ascending)
+        self.layoutChanged.emit()
+
+    def _find_card_image(
+        self, card_code: str = None, image_path: str = None
+    ) -> Optional[str]:
+        if image_path:
+            check_paths = [
+                image_path,
+                BASE_DIR / "resources" / "card_imgs" / image_path,
+            ]
+            normalized_path = image_path.replace("\\", "/")
+            if "/" in normalized_path:
+                parts = normalized_path.split("/")
+                filename = parts[-1]
+                set_code = parts[0]
+                check_paths.append(
+                    BASE_DIR / "resources" / "card_imgs" / set_code / filename
+                )
+                check_paths.append(
+                    BASE_DIR / "static" / "card_imgs" / set_code / filename
+                )
+            for path in check_paths:
+                if os.path.exists(path):
+                    return str(path)
+
+        if card_code and "_" in card_code:
+            set_code, _ = card_code.split("_", 1)
+            name = card_code
+            for base_dir in ["resources"]:
+                path = BASE_DIR / base_dir / "card_imgs" / set_code / f"{name}.webp"
+                if path.exists():
+                    return str(path)
+        return None
+
+
 class ProcessingTaskModel(QAbstractTableModel):
     """Model for displaying processing tasks"""
 
