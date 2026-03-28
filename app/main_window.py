@@ -1088,6 +1088,8 @@ class MainWindow(QMainWindow):
             if not getattr(self, "_initial_owned_cards_load_attempted", False):
                 self._initial_owned_cards_load_attempted = True
                 self._refresh_owned_cards_tab()
+            else:
+                self._update_owned_status_label()
 
     def _setup_processing_tab(self):
         """Set up the processing tab with task monitoring"""
@@ -1302,24 +1304,26 @@ class MainWindow(QMainWindow):
 
         self.owned_set_filter = CheckableComboBox(self.tr("All Sets"))
         self.owned_set_filter.setMinimumWidth(150)
+        self.owned_set_filter.setMaximumWidth(200)
         filter_layout.addWidget(QLabel(self.tr("Set:")))
         filter_layout.addWidget(self.owned_set_filter)
+
+        self.owned_rarity_filter = CheckableComboBox(self.tr("All Rarities"))
+        self.owned_rarity_filter.setMinimumWidth(150)
+        filter_layout.addWidget(QLabel(self.tr("Rarity:")))
+        filter_layout.addWidget(self.owned_rarity_filter)
 
         self.owned_have_filter = QComboBox()
         self.owned_have_filter.addItems([self.tr("All"), self.tr("Have"), self.tr("Don't Have")])
         filter_layout.addWidget(QLabel(self.tr("Own:")))
         filter_layout.addWidget(self.owned_have_filter)
 
-        self.owned_rarity_filter = CheckableComboBox(self.tr("All Rarities"))
-        self.owned_rarity_filter.setMinimumWidth(150)
-        filter_layout.addWidget(self.owned_rarity_filter)
-
         self.owned_search_box = QLineEdit()
         self.owned_search_box.setPlaceholderText(self.tr("Search cards..."))
         self.owned_search_box.setMinimumWidth(200)
         filter_layout.addWidget(self.owned_search_box)
 
-        self.mark_all_owned_btn = QPushButton(self.tr("Mark All Owned"))
+        self.mark_all_owned_btn = QPushButton(self.tr("Mark All"))
         self.mark_all_owned_btn.clicked.connect(self._mark_all_visible_owned)
         filter_layout.addWidget(self.mark_all_owned_btn)
 
@@ -1349,7 +1353,9 @@ class MainWindow(QMainWindow):
         self.owned_cards_table.setModel(self.owned_card_model)
         self.owned_card_model.modelReset.connect(self._configure_owned_table_columns)
         self.owned_card_model.modelReset.connect(self._update_mark_all_btn_label)
+        self.owned_card_model.modelReset.connect(self._update_owned_status_label)
         self.owned_card_model.dataChanged.connect(self._update_mark_all_btn_label)
+        self.owned_card_model.dataChanged.connect(self._update_owned_status_label)
         self._configure_owned_table_columns()
 
         self.owned_set_filter.selectionChanged.connect(self._apply_owned_filters)
@@ -1357,16 +1363,19 @@ class MainWindow(QMainWindow):
         self.owned_rarity_filter.selectionChanged.connect(self._apply_owned_filters)
         self.owned_search_box.textChanged.connect(self._apply_owned_filters)
         self.owned_cards_table.clicked.connect(self._on_owned_card_table_clicked)
+        self.owned_cards_table.doubleClicked.connect(self._on_owned_card_table_double_clicked)
         self.owned_cards_table.installEventFilter(self)
 
     def _configure_owned_table_columns(self):
         header = self.owned_cards_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        self.owned_cards_table.setColumnWidth(0, 48)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         self.owned_cards_table.setColumnWidth(3, 60)
+
+        icon_width = self.owned_cards_table.iconSize().width()
+        self.owned_cards_table.setColumnWidth(0, icon_width + 8)
 
     def _refresh_owned_cards_tab(self):
         try:
@@ -1394,7 +1403,7 @@ class MainWindow(QMainWindow):
                     "set_name": set_names.get(card.set, card.set) or "",
                     "image_path": card.image_path,
                     "owned": card.code in owned_codes,
-                    "rarity": card.rarity,
+                    "rarity": rarity_map.get(card.rarity, card.rarity) if card.rarity else "",
                 })
 
             for code, full_name, obj in dex.items():
@@ -1408,7 +1417,7 @@ class MainWindow(QMainWindow):
                     "set_name": display_set,
                     "image_path": image_path,
                     "owned": code in owned_codes,
-                    "rarity": obj.rarity,
+                    "rarity": rarity_map.get(obj.rarity, obj.rarity) if obj.rarity else "",
                 })
 
             # Sort by set code then card number
@@ -1441,7 +1450,7 @@ class MainWindow(QMainWindow):
             self.owned_set_filter.addItem(name)
         self.owned_set_filter.blockSignals(False)
 
-        rarity_order = [r.value for r in DbCard.Rarity]
+        rarity_order = [r.label for r in DbCard.Rarity]
         present_rarities = {c.get("rarity") for c in data if c.get("rarity")}
         sorted_rarities = [r for r in rarity_order if r in present_rarities]
 
@@ -1521,8 +1530,22 @@ class MainWindow(QMainWindow):
         visible_data = getattr(self.owned_card_model, "_data", [])
         owned_count = sum(1 for item in visible_data if item.get("owned"))
         majority_owned = owned_count > len(visible_data) / 2
-        label = self.tr("Unmark All Owned") if majority_owned else self.tr("Mark All Owned")
+        label = self.tr("Unmark All") if majority_owned else self.tr("Mark All")
         self.mark_all_owned_btn.setText(label)
+
+    def _update_owned_status_label(self):
+        if self.tab_widget.currentIndex() != getattr(self, "owned_cards_tab_index", -1):
+            return
+        visible_data = getattr(self.owned_card_model, "_data", [])
+        total = len(visible_data)
+        owned_count = sum(1 for item in visible_data if item.get("owned"))
+        self._update_status_message(self.tr(f"{total} cards displayed, {owned_count} owned"))
+
+    def _on_owned_card_table_double_clicked(self, index):
+        col3 = self.owned_card_model.index(index.row(), 3)
+        current = self.owned_card_model.data(col3, Qt.ItemDataRole.CheckStateRole)
+        new_state = Qt.CheckState.Unchecked if current == Qt.CheckState.Checked else Qt.CheckState.Checked
+        self.owned_card_model.setData(col3, new_state, Qt.ItemDataRole.CheckStateRole)
 
     def _mark_all_visible_owned(self):
         from app.db.models import Card, OwnedCard
