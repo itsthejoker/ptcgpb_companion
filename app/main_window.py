@@ -1408,6 +1408,7 @@ class MainWindow(QMainWindow):
                     "set_name": display_set,
                     "image_path": image_path,
                     "owned": code in owned_codes,
+                    "rarity": obj.rarity,
                 })
 
             # Sort by set code then card number

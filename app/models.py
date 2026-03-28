@@ -232,7 +232,15 @@ class OwnedCardModel(QAbstractTableModel):
         card_code = card_data.get("card_code")
         card = Card.objects.filter(code=card_code).first()
         if not card:
-            return False
+            set_code = card_code.split("_")[0] if card_code and "_" in card_code else None
+            card, _ = Card.objects.get_or_create(
+                code=card_code,
+                defaults={
+                    "name": card_data.get("card_name"),
+                    "set": set_code,
+                    "rarity": card_data.get("rarity"),
+                },
+            )
 
         checked = value == Qt.CheckState.Checked.value or value == Qt.CheckState.Checked
         if checked:
