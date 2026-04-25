@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QCheckBox,
     QComboBox,
+    QSizePolicy,
 )
 from PyQt6.QtCore import QSize, QTimer
 from PyQt6.QtGui import QAction
@@ -1020,8 +1021,9 @@ class MainWindow(QMainWindow):
         # Search box
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText(self.tr("Search cards..."))
-        self.search_box.setMinimumWidth(200)
+        self.search_box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         filter_layout.addWidget(self.search_box)
+        filter_layout.addStretch()
 
         # Mark own all button
         self.mark_own_all_btn = QPushButton(self.tr("Own All"))
