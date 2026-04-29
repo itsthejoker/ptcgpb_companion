@@ -173,7 +173,12 @@ class MainWindow(QMainWindow):
             "General/screenshots_dir", ""
         )
         if screenshots_dir and os.path.isdir(screenshots_dir):
-            self._on_processing_started(screenshots_dir, overwrite=True)
+            self._defer_scan_until_idle(
+                lambda: self._on_processing_started(
+                    screenshots_dir, overwrite=True
+                ),
+                reason="first-launch processing",
+            )
         else:
             logger.warning(
                 "First-launch processing skipped: screenshots_dir is not set "
@@ -186,6 +191,42 @@ class MainWindow(QMainWindow):
                     "is not configured. Please set it in Preferences."
                 )
             )
+
+    def _defer_scan_until_idle(self, callback, reason: str = "scan",
+                               poll_interval_ms: int = 500):
+        """
+        Defer running ``callback`` (typically a scan/processing kickoff) until
+        all currently-running jobs in ``self.active_workers`` have stopped.
+
+        If no jobs are running, ``callback`` is invoked immediately. Otherwise
+        a single-shot QTimer polls every ``poll_interval_ms`` milliseconds and
+        invokes ``callback`` as soon as ``self.active_workers`` is empty.
+        """
+        active_workers = getattr(self, "active_workers", [])
+        if not active_workers:
+            callback()
+            return
+
+        logger.info(
+            "Deferring %s until %d active worker(s) finish.",
+            reason,
+            len(active_workers),
+        )
+        self._update_status_message(
+            self.tr(
+                "Waiting for running jobs to finish before starting %1..."
+            ).replace("%1", reason)
+        )
+
+        def _check():
+            remaining = getattr(self, "active_workers", [])
+            if not remaining:
+                logger.info("Active workers cleared; starting deferred %s.", reason)
+                callback()
+                return
+            QTimer.singleShot(poll_interval_ms, _check)
+
+        QTimer.singleShot(poll_interval_ms, _check)
 
     def _start_art_download_if_needed(self):
         """Check for card art directory and start background download if missing"""
