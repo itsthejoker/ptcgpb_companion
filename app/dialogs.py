@@ -35,25 +35,6 @@ from datetime import datetime
 from app.utils import get_app_version, SECTION_ORDER, record_traded_card
 from typing import Callable
 
-# =============================================================================
-# Release notes shown in the FirstLaunchDialog.
-#
-# HOW TO UPDATE FOR A RELEASE:
-#   1. Before tagging/releasing a new version, edit the FIRST_LAUNCH_RELEASE_NOTES
-#      string below to describe the changes in the upcoming release.
-#   2. Use simple HTML (e.g. <h3>, <ul>, <li>, <p>, <b>) — it is rendered by
-#      QLabel with rich-text formatting.
-#   3. Keep it concise: highlights, breaking changes, and notable fixes.
-#   4. Commit the change as part of the release PR so users who launch the
-#      new version for the first time see the notes for *that* version.
-#   5. Each element of the below structure is rendered as a bullet point in the
-#      update message.
-# =============================================================================
-FIRST_LAUNCH_RELEASE_NOTES = [
-    "Added Celestial Guardians Shiny Exeggcute & Shiny Exeggutor to similar cards matching",
-    "Fixed bug where release notes weren't translated",
-]
-
 
 class IntValidator(QValidator):
     """Custom integer validator for QLineEdit"""
@@ -629,6 +610,30 @@ class FirstLaunchDialog(QDialog):
         self._setup_ui()
 
     def _setup_ui(self):
+        # =============================================================================
+        # Release notes shown in the FirstLaunchDialog.
+        #
+        # HOW TO UPDATE FOR A RELEASE:
+        #   1. Before tagging/releasing a new version, edit the FIRST_LAUNCH_RELEASE_NOTES
+        #      string below to describe the changes in the upcoming release.
+        #   2. Use simple HTML (e.g. <h3>, <ul>, <li>, <p>, <b>) — it is rendered by
+        #      QLabel with rich-text formatting.
+        #   3. Keep it concise: highlights, breaking changes, and notable fixes.
+        #   4. Commit the change as part of the release PR so users who launch the
+        #      new version for the first time see the notes for *that* version.
+        #   5. Each element of the below structure is rendered as a bullet point in the
+        #      update message.
+        #
+        # Unfortunately, if it's not inside the QDialog class, we don't have access to
+        # the translations. So... it's buried here.
+        # =============================================================================
+        first_launch_release_notes = [
+            self.tr(
+                "Added Celestial Guardians Shiny Exeggcute & Shiny Exeggutor to similar cards matching"
+            ),
+            self.tr("Fixed bug where release notes weren't translated"),
+        ]
+
         main_layout = QVBoxLayout()
 
         title_label = QLabel(self.tr("<h2>What's New</h2>"))
@@ -648,8 +653,8 @@ class FirstLaunchDialog(QDialog):
             + "</p>\n"
         )
         html += "<ul>\n"
-        for note in FIRST_LAUNCH_RELEASE_NOTES:
-            html += f"  <li>{self.tr(note)}</li>\n"
+        for note in first_launch_release_notes:
+            html += f"  <li>{note}</li>\n"
         html += "</ul>\n"
         html += "<p>" + self.tr("Best of luck!") + "</p>"
 
