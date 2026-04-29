@@ -177,7 +177,7 @@ recognition logic.
 Before tagging / publishing a new release, update the release notes shown in this dialog:
 
 1. Open `app/dialogs.py`.
-2. Locate the `FIRST_LAUNCH_RELEASE_NOTES` string at the top of the file.
+2. Locate the `FIRST_LAUNCH_RELEASE_NOTES` string.
 3. Edit the HTML content to describe the changes in the upcoming release. The string is
    rendered as rich text by a `QTextEdit`, so simple HTML tags such as `<h3>`, `<p>`,
    `<ul>`/`<li>`, and `<b>` are supported.
