@@ -163,3 +163,37 @@ export GOOGLE_CLOUD_PROJECT="my-project12345"
 Then run `update_translations.sh` to automatically update each of the files, scan for untranslated strings, pass the
 untranslated strings to Translate V3, and re-assemble the file with the results, then compile it all into the format
 that QT needs for rendering properly.
+
+## Releasing
+
+### Updating the First-Launch Release Notes
+
+The first time a user launches a given installation of PTCGPB Companion, a welcome dialog
+(`FirstLaunchDialog`) is shown with release notes. Both the **Close** button and the window's
+**X** button dismiss the dialog and automatically kick off a screenshot processing job with
+`overwrite=True`, so that the user's data is brought up to date with the latest version's
+recognition logic.
+
+Before tagging / publishing a new release, update the release notes shown in this dialog:
+
+1. Open `app/dialogs.py`.
+2. Locate the `FIRST_LAUNCH_RELEASE_NOTES` string at the top of the file.
+3. Edit the HTML content to describe the changes in the upcoming release. The string is
+   rendered as rich text by a `QTextEdit`, so simple HTML tags such as `<h3>`, `<p>`,
+   `<ul>`/`<li>`, and `<b>` are supported.
+4. Keep it concise — highlights, breaking changes, and notable fixes are usually enough.
+5. Commit the change as part of the release PR so that users who launch the new version
+   for the first time see the notes for *that* version.
+
+> [!NOTE]
+> The dialog is gated by the `General/first_launch_shown` flag in the portable
+> `config.ini`. Each portable install will show the dialog exactly once. If you want to
+> re-test the dialog locally, delete that key from `data/config.ini` (or delete the file)
+> and relaunch the app.
+
+> [!NOTE]
+> When the in-app updater applies a downloaded update, it automatically resets the
+> `General/first_launch_shown` flag to `false` before restarting. This ensures that the
+> updated version's release notes are shown the next time the app launches. Users who
+> update manually (by overwriting files or via `git pull`) will not see the dialog again
+> unless they reset the flag themselves.

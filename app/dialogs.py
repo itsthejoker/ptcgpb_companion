@@ -27,13 +27,39 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QWidget,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QSize, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QIcon, QValidator, QPixmap
 import os
 import csv
 from datetime import datetime
 from app.utils import get_app_version, SECTION_ORDER, record_traded_card
-from typing import Optional, Dict, Any, Callable
+from typing import Callable
+
+
+# =============================================================================
+# Release notes shown in the FirstLaunchDialog.
+#
+# HOW TO UPDATE FOR A RELEASE:
+#   1. Before tagging/releasing a new version, edit the FIRST_LAUNCH_RELEASE_NOTES
+#      string below to describe the changes in the upcoming release.
+#   2. Use simple HTML (e.g. <h3>, <ul>, <li>, <p>, <b>) — it is rendered by
+#      QLabel with rich-text formatting.
+#   3. Keep it concise: highlights, breaking changes, and notable fixes.
+#   4. Commit the change as part of the release PR so users who launch the
+#      new version for the first time see the notes for *that* version.
+# =============================================================================
+FIRST_LAUNCH_RELEASE_NOTES = """
+<h3>Welcome to PTCGPB Companion!</h3>
+<p>Thanks for installing (or updating) PTCGPB Companion. Here are the
+highlights for this release:</p>
+<ul>
+  <li>Added a first-launch welcome screen with release notes. You're reading it now!</li>
+  <li>Added a "similar cards" detection system to re-process common issue cards at higher
+  resolutions</li>
+  <li>Added <b>Pulsing Aura</b> set</li>
+</ul>
+<p>Gotta catch 'em all!</p>
+"""
 
 
 class IntValidator(QValidator):
@@ -591,6 +617,49 @@ class PreferencesDialog(QDialog):
                     ),
                 )
         super().accept()
+
+
+class FirstLaunchDialog(QDialog):
+    """
+    Dialog shown on the first launch of the application.
+
+    Displays release notes and triggers a screenshot processing job
+    (with overwrite enabled) when dismissed via either the Close button
+    or the window's X button.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(self.tr("Welcome to PTCGPB Companion"))
+        self.setMinimumSize(500, 400)
+
+        self._setup_ui()
+
+    def _setup_ui(self):
+        main_layout = QVBoxLayout()
+
+        title_label = QLabel(self.tr("<h2>What's New</h2>"))
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        main_layout.addWidget(title_label)
+
+        notes_view = QTextEdit()
+        notes_view.setReadOnly(True)
+        notes_view.setHtml(FIRST_LAUNCH_RELEASE_NOTES)
+        main_layout.addWidget(notes_view, 1)
+
+        close_btn = QPushButton(self.tr("Close"))
+        close_btn.clicked.connect(self.accept)
+        close_btn.setMinimumWidth(100)
+        close_btn.setDefault(True)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        btn_layout.addStretch()
+
+        main_layout.addLayout(btn_layout)
+
+        self.setLayout(main_layout)
 
 
 class AboutDialog(QDialog):

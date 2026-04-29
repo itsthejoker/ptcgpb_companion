@@ -47,6 +47,7 @@ from app.dialogs import (
     AccountCardListDialog,
     PreferencesDialog,
     DiagnoseImageDialog,
+    FirstLaunchDialog,
 )
 
 from app.workers import (
@@ -135,6 +136,8 @@ class MainWindow(QMainWindow):
 
         QTimer.singleShot(300, self._check_for_updates)
 
+        QTimer.singleShot(400, self._show_first_launch_if_needed)
+
         self.recent_activity_messages.append(
             {
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -142,6 +145,47 @@ class MainWindow(QMainWindow):
             }
         )
         self._update_recent_activity()
+
+    def _show_first_launch_if_needed(self):
+        """
+        On the first launch, display the FirstLaunchDialog with release notes.
+
+        Both the Close button and the window's X button dismiss the dialog
+        and trigger a screenshot processing job with overwrite enabled.
+        """
+        already_shown = self.settings.get_setting(
+            "General/first_launch_shown", False
+        )
+        if already_shown:
+            return
+
+        dialog = FirstLaunchDialog(self)
+        # exec() returns regardless of how the dialog was closed
+        # (Close button -> accept, X button -> reject). We trigger
+        # screenshot processing in either case.
+        dialog.exec()
+
+        # Persist the flag so this dialog is only shown once.
+        self.settings.set_setting("General/first_launch_shown", True)
+
+        # Kick off screenshot processing with overwrite enabled.
+        screenshots_dir = self.settings.get_setting(
+            "General/screenshots_dir", ""
+        )
+        if screenshots_dir and os.path.isdir(screenshots_dir):
+            self._on_processing_started(screenshots_dir, overwrite=True)
+        else:
+            logger.warning(
+                "First-launch processing skipped: screenshots_dir is not set "
+                "or does not exist (%r).",
+                screenshots_dir,
+            )
+            self._update_status_message(
+                self.tr(
+                    "First-launch processing skipped: screenshots directory "
+                    "is not configured. Please set it in Preferences."
+                )
+            )
 
     def _start_art_download_if_needed(self):
         """Check for card art directory and start background download if missing"""
@@ -606,6 +650,15 @@ class MainWindow(QMainWindow):
         payload = find_update_payload(extract_dir)
         if not payload:
             raise ValueError("Update package did not contain _internal and exe files.")
+
+        # Reset the first-launch flag so the updated version shows its release
+        # notes on next launch. Persist before spawning the updater script,
+        # since this process will be terminated by it.
+        self.settings.set_setting("General/first_launch_shown", False)
+        logger.info(
+            "Reset General/first_launch_shown=False prior to applying update; "
+            "release notes will be shown on next launch."
+        )
 
         internal_src, exe_src = payload
         target_dir = os.path.dirname(sys.executable)
