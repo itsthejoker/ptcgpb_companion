@@ -53,12 +53,9 @@ FIRST_LAUNCH_RELEASE_NOTES = """
 <p>Thanks for installing (or updating) PTCGPB Companion. Here are the
 highlights for this release:</p>
 <ul>
-  <li>Added a first-launch welcome screen with release notes. You're reading it now!</li>
-  <li>Added a "similar cards" detection system to re-process common issue cards at higher
-  resolutions</li>
-  <li>Added <b>Pulsing Aura</b> set</li>
+  <li>Added Celestial Guardians Shiny Exeggute & Shiny Exeggutor to similar cards matching</li>
 </ul>
-<p>Gotta catch 'em all!</p>
+<p>Best of luck!</p>
 """
 
 
