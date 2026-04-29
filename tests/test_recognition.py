@@ -244,6 +244,16 @@ cards_to_test = [
         d["B2b_61"],
         d["B2b_93"],
     ),
+    CardImg(
+        "img_17.png",
+        CardSet.CELESTIAL_GUARDIANS,
+        d["A3_54"],
+        d["A3_63"],
+        d["A3_67"],
+        d["A3_148"],
+        d["A3_213"],
+        None
+    ),
 ]
 
 
