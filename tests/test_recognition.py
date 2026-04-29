@@ -214,6 +214,36 @@ cards_to_test = [
         d["B2_8"],
         d["B2_223"],
     ),
+    CardImg(
+        "img_14.png",
+        CardSet.SHINING_REVELRY,
+        d["A2b_27"],
+        d["A2b_41"],
+        d["A2b_29"],
+        d["A2b_38"],
+        d["A2b_100"],
+        None,
+    ),
+    CardImg(
+        "img_15.png",
+        CardSet.PALDEAN_WONDERS,
+        d["B2a_22"],
+        d["B2a_7"],
+        d["B2a_12"],
+        d["B2a_37"],
+        d["B2a_51"],
+        d["B2a_120"],
+    ),
+    CardImg(
+        "img_16.png",
+        CardSet.MEGA_SHINE,
+        d["B2b_61"],
+        d["B2b_41"],
+        d["B2b_25"],
+        d["B2b_44"],
+        d["B2b_61"],
+        d["B2b_93"],
+    ),
 ]
 
 

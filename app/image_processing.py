@@ -625,6 +625,51 @@ class ImageProcessor:
                         else:
                             logger.debug(f"Re-evaluation failed for position {pos}")
 
+            # Similar-cards disambiguation pass: for any card that the standard
+            # pipeline matched to an id appearing in SIMILAR_CARDS, perform a
+            # high-quality rescan limited to the listed candidates.
+            from app.similar_cards import SIMILAR_CARDS
+
+            for i, card in enumerate(detected_cards):
+                card_obj = card.get("obj")
+                if card_obj is None:
+                    continue
+                card_id = card_obj.id
+                candidate_ids = SIMILAR_CARDS.get(card_id)
+                if not candidate_ids:
+                    continue
+
+                x, y, w, h = card["x"], card["y"], card["width"], card["height"]
+                card_region = screenshot[y : y + h, x : x + w]
+
+                logger.debug(
+                    f"Similar-card rescan triggered at slot {card['position']}: "
+                    f"initial={card_id}, candidates={candidate_ids}"
+                )
+
+                rescan = self._rescan_similar_card(card_region, candidate_ids)
+                if rescan is None:
+                    continue
+
+                rescanned_obj = self._get_card_obj(
+                    rescan["card_name"], rescan["card_set"]
+                )
+                if rescanned_obj.id != card_id:
+                    logger.debug(
+                        f"Similar-card rescan changed slot {card['position']}: "
+                        f"{card_id} -> {rescanned_obj.id} "
+                        f"(confidence {rescan['confidence']:.4f})"
+                    )
+                detected_cards[i] = {
+                    "position": card["position"],
+                    "obj": rescanned_obj,
+                    "confidence": rescan["confidence"],
+                    "x": x,
+                    "y": y,
+                    "width": w,
+                    "height": h,
+                }
+
             print(f"Found {len(detected_cards)} cards in {image_path}")
             return detected_cards
 
@@ -938,6 +983,128 @@ class ImageProcessor:
             return best_match
 
         return None
+
+    def _rescan_similar_card(
+        self,
+        card_region: np.ndarray,
+        candidate_ids: List[str],
+    ) -> Dict[str, Any]:
+        """
+        High-quality rescan of a single card region against a small set of
+        candidate cards.
+
+        Both the card region and each candidate template are processed at the
+        candidate templates' native (full) resolution to maximise pixel-level
+        accuracy. Candidates are scored using a combination of normalized
+        cross-correlation and perceptual hash distance, and the best one is
+        returned.
+
+        Args:
+            card_region: Card image region as numpy array (BGR).
+            candidate_ids: Iterable of ``"<set>_<card_name>"`` identifiers to
+                consider. Identifiers that do not resolve to a loaded template
+                are skipped. The list must contain at least one resolvable
+                candidate, otherwise an exception is raised.
+
+        Returns:
+            Dict mirroring the structure produced by ``_find_best_card_match``.
+        """
+        from app.similar_cards import SIMILAR_CARDS  # noqa: F401  (doc anchor)
+
+        # Resolve candidates by loading their full-resolution images directly
+        # from disk. The in-memory ``card_database`` is cleared after template
+        # preparation to save memory, so we cannot rely on it here.
+        resolved: List[Tuple[str, str, np.ndarray]] = []
+        for cid in candidate_ids:
+            if "_" not in cid:
+                raise ValueError(
+                    f"Similar-card identifier '{cid}' must be of the form "
+                    f"'<set>_<card_name>'"
+                )
+            set_name = cid.split("_", 1)[0]
+            set_dir = os.path.join(self.card_imgs_dir, set_name)
+            if not os.path.isdir(set_dir):
+                raise FileNotFoundError(
+                    f"Similar-card set directory not found: {set_dir}"
+                )
+
+            template = None
+            for ext in (".webp", ".png", ".jpg", ".jpeg"):
+                candidate_path = os.path.join(set_dir, f"{cid}{ext}")
+                if os.path.isfile(candidate_path):
+                    template = self._load_and_preprocess_card(candidate_path)
+                    break
+            if template is None:
+                raise FileNotFoundError(
+                    f"Similar-card template image for '{cid}' not found in {set_dir}"
+                )
+            resolved.append((set_name, cid, template))
+
+        if not resolved:
+            raise ValueError("No candidates supplied for similar-card rescan")
+
+        # Use the largest candidate template's native resolution as the rescan
+        # resolution, so that we keep as much detail as possible.
+        target_h = max(t.shape[0] for _, _, t in resolved)
+        target_w = max(t.shape[1] for _, _, t in resolved)
+
+        # Upscale the captured card region to the target resolution.
+        region_hi = cv2.resize(
+            card_region, (target_w, target_h), interpolation=cv2.INTER_CUBIC
+        )
+
+        # Pre-compute query vector for normalized cross-correlation.
+        q_vec = region_hi.astype(np.float32).flatten()
+        q_vec -= np.mean(q_vec)
+        q_norm = np.linalg.norm(q_vec)
+        if q_norm > 0:
+            q_vec /= q_norm
+
+        # Pre-compute query pHash on the high-resolution region.
+        q_phash = imagehash.phash(Image.fromarray(region_hi), hash_size=16)
+
+        best = None
+        for set_name, cid, template in resolved:
+            if template.shape[0] != target_h or template.shape[1] != target_w:
+                tmpl_hi = cv2.resize(
+                    template,
+                    (target_w, target_h),
+                    interpolation=cv2.INTER_CUBIC,
+                )
+            else:
+                tmpl_hi = template
+
+            t_vec = tmpl_hi.astype(np.float32).flatten()
+            t_vec -= np.mean(t_vec)
+            t_norm = np.linalg.norm(t_vec)
+            if t_norm > 0:
+                t_vec /= t_norm
+
+            corr_score = float(np.dot(q_vec, t_vec))
+
+            t_phash = imagehash.phash(Image.fromarray(tmpl_hi), hash_size=16)
+            # 16x16 hash => 256 bits.
+            phash_score = 1.0 - (q_phash - t_phash) / 256.0
+
+            hybrid = 0.6 * corr_score + 0.4 * phash_score
+
+            logger.debug(
+                f"Similar-card rescan candidate {cid}: corr={corr_score:.4f} "
+                f"phash={phash_score:.4f} hybrid={hybrid:.4f}"
+            )
+
+            if best is None or hybrid > best["confidence"]:
+                best = {
+                    "card_name": cid,
+                    "card_set": set_name,
+                    "confidence": hybrid,
+                    "phash_score": phash_score,
+                    "whash_score": 0.0,
+                    "corr_score": corr_score,
+                    "hybrid_score": hybrid,
+                }
+
+        return best
 
     def get_template_count(self) -> int:
         """
