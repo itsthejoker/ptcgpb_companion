@@ -27,7 +27,6 @@ best one.
 
 from typing import Dict, List
 
-
 SIMILAR_CARDS: Dict[str, List[str]] = {
     "A2b_99": ["A2b_99", "A2b_100"],  # shiny charmander
     "A2b_100": ["A2b_99", "A2b_100"],  # shiny charmeleon
@@ -35,6 +34,6 @@ SIMILAR_CARDS: Dict[str, List[str]] = {
     "B2a_121": ["B2a_120", "B2a_121"],  # shiny pawmot
     "B2b_93": ["B2b_93", "B2b_91"],  # shiny ponyta
     "B2b_91": ["B2b_93", "B2b_91"],  # shiny charmander
-    "A3_213": ["A3_213", "A3_214"],  # shiny exeggute
+    "A3_213": ["A3_213", "A3_214"],  # shiny exeggcute
     "A3_214": ["A3_213", "A3_214"],  # shiny exeggutor
 }

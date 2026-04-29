@@ -675,7 +675,9 @@ class CardArtDownloadWorker(QRunnable):
                         set_dir = os.path.join(dest_root, set_id)
                         filename = None
                         for ext in [".webp", ".png", ".jpg", ".jpeg"]:
-                            if os.path.exists(os.path.join(set_dir, f"{card_code}{ext}")):
+                            if os.path.exists(
+                                os.path.join(set_dir, f"{card_code}{ext}")
+                            ):
                                 filename = f"{card_code}{ext}"
                                 break
 
@@ -1186,7 +1188,7 @@ class ScreenshotProcessingWorker(QRunnable):
                     if not screenshot_obj:
                         # Try to get set code from pack_type
                         set_code = translate_set_name(pack_type) or pack_type
-                        
+
                         # Validate set_code is a valid CardSet value
                         valid_set = None
                         try:
@@ -1286,16 +1288,22 @@ class ScreenshotProcessingWorker(QRunnable):
                     if screenshot_cards:
                         try:
                             ScreenshotCard.objects.bulk_create(screenshot_cards)
-                            logger.debug(f"Successfully saved {len(screenshot_cards)} cards for {filename}")
+                            logger.debug(
+                                f"Successfully saved {len(screenshot_cards)} cards for {filename}"
+                            )
                         except Exception as e:
-                            logger.error(f"Failed to bulk save cards for {filename}: {e}")
+                            logger.error(
+                                f"Failed to bulk save cards for {filename}: {e}"
+                            )
                             # Fallback to individual saves if bulk fails
                             for sc in screenshot_cards:
                                 try:
                                     sc.save()
                                 except Exception as sc_e:
-                                    logger.error(f"Failed to save individual card at position {sc.position}: {sc_e}")
-                    
+                                    logger.error(
+                                        f"Failed to save individual card at position {sc.position}: {sc_e}"
+                                    )
+
                     # Mark screenshot as processed if we successfully saved cards or it was blank
                     # If screenshot_cards were created but bulk_create failed, some might still be missing
                     # but we've logged errors above.
@@ -1303,7 +1311,9 @@ class ScreenshotProcessingWorker(QRunnable):
                         screenshot_obj.processed = True
                         screenshot_obj.save()
                     else:
-                        logger.warning(f"No valid cards to save for {filename}, not marking as processed")
+                        logger.warning(
+                            f"No valid cards to save for {filename}, not marking as processed"
+                        )
 
             except Exception as e:
                 logger.error(f"Error storing results for {filename}: {e}")
@@ -1458,9 +1468,7 @@ class CardDataLoadWorker(QRunnable):
 
             cutoff = (datetime.now() - timedelta(days=14)).strftime("%Y%m%d%H%M%S")
             tradeable_codes = set(
-                ScreenshotCard.objects.filter(
-                    screenshot__account__name__lte=cutoff
-                )
+                ScreenshotCard.objects.filter(screenshot__account__name__lte=cutoff)
                 .values_list("card__code", flat=True)
                 .distinct()
             )

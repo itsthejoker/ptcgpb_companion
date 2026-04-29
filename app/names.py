@@ -3181,7 +3181,7 @@ class Dex:
             set_id, number_str = pieces
         else:
             set_id, number_str = pieces[-2:]
-        
+
         number = int(number_str)
 
         return next(

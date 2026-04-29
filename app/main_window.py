@@ -153,9 +153,7 @@ class MainWindow(QMainWindow):
         Both the Close button and the window's X button dismiss the dialog
         and trigger a screenshot processing job with overwrite enabled.
         """
-        already_shown = self.settings.get_setting(
-            "General/first_launch_shown", False
-        )
+        already_shown = self.settings.get_setting("General/first_launch_shown", False)
         if already_shown:
             return
 
@@ -169,14 +167,10 @@ class MainWindow(QMainWindow):
         self.settings.set_setting("General/first_launch_shown", True)
 
         # Kick off screenshot processing with overwrite enabled.
-        screenshots_dir = self.settings.get_setting(
-            "General/screenshots_dir", ""
-        )
+        screenshots_dir = self.settings.get_setting("General/screenshots_dir", "")
         if screenshots_dir and os.path.isdir(screenshots_dir):
             self._defer_scan_until_idle(
-                lambda: self._on_processing_started(
-                    screenshots_dir, overwrite=True
-                ),
+                lambda: self._on_processing_started(screenshots_dir, overwrite=True),
                 reason="first-launch processing",
             )
         else:
@@ -192,8 +186,9 @@ class MainWindow(QMainWindow):
                 )
             )
 
-    def _defer_scan_until_idle(self, callback, reason: str = "scan",
-                               poll_interval_ms: int = 500):
+    def _defer_scan_until_idle(
+        self, callback, reason: str = "scan", poll_interval_ms: int = 500
+    ):
         """
         Defer running ``callback`` (typically a scan/processing kickoff) until
         all currently-running jobs in ``self.active_workers`` have stopped.
@@ -213,9 +208,9 @@ class MainWindow(QMainWindow):
             len(active_workers),
         )
         self._update_status_message(
-            self.tr(
-                "Waiting for running jobs to finish before starting %1..."
-            ).replace("%1", reason)
+            self.tr("Waiting for running jobs to finish before starting %1...").replace(
+                "%1", reason
+            )
         )
 
         def _check():
@@ -660,7 +655,9 @@ class MainWindow(QMainWindow):
             )
 
     def _on_update_download_result(self, result: dict):
-        self._update_status_message("Application will restart after the update is applied.")
+        self._update_status_message(
+            "Application will restart after the update is applied."
+        )
         try:
             extract_dir = result.get("extract_dir")
             if not extract_dir:

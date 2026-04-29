@@ -130,10 +130,7 @@ class ImageProcessor:
                 for card_name, h in cards.items():
                     w = self.whash_templates.get(set_name, {}).get(card_name)
                     if w:
-                        data[set_name][card_name] = {
-                            "phash": str(h),
-                            "whash": str(w)
-                        }
+                        data[set_name][card_name] = {"phash": str(h), "whash": str(w)}
                     else:
                         data[set_name][card_name] = str(h)
 
@@ -294,7 +291,7 @@ class ImageProcessor:
                         template_pil
                     )
                     new_hashes_computed = True
-                
+
                 if card_name not in self.whash_templates.get(set_name, {}):
                     if template_pil is None:
                         template_pil = Image.fromarray(template)
@@ -480,7 +477,7 @@ class ImageProcessor:
                         card_set = card_obj.set_id.value
                     else:
                         card_set = str(card_obj.set_id) if card_obj else None
-                    
+
                     if card_set:
                         set_counts[card_set] = set_counts.get(card_set, 0) + 1
 
@@ -489,7 +486,9 @@ class ImageProcessor:
                 top_sets = [s for s, count in set_counts.items() if count == max_count]
 
                 # A clear winner exists if there's only one top set and it has more than half of the cards
-                is_clear_winner = len(top_sets) == 1 and max_count > len(detected_cards) / 2
+                is_clear_winner = (
+                    len(top_sets) == 1 and max_count > len(detected_cards) / 2
+                )
 
                 if not is_clear_winner and len(set_counts) > 1:
                     logger.debug(
@@ -563,7 +562,7 @@ class ImageProcessor:
                     card_obj = card.get("obj")
                     if not card_obj:
                         continue
-                    
+
                     card_set = (
                         card_obj.set_id.value
                         if hasattr(card_obj.set_id, "value")

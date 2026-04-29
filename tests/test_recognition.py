@@ -252,7 +252,7 @@ cards_to_test = [
         d["A3_67"],
         d["A3_148"],
         d["A3_213"],
-        None
+        None,
     ),
 ]
 

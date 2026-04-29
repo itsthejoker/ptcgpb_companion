@@ -35,7 +35,6 @@ from datetime import datetime
 from app.utils import get_app_version, SECTION_ORDER, record_traded_card
 from typing import Callable
 
-
 # =============================================================================
 # Release notes shown in the FirstLaunchDialog.
 #
@@ -47,16 +46,12 @@ from typing import Callable
 #   3. Keep it concise: highlights, breaking changes, and notable fixes.
 #   4. Commit the change as part of the release PR so users who launch the
 #      new version for the first time see the notes for *that* version.
+#   5. Each element of the below structure is rendered as a bullet point in the
+#      update message.
 # =============================================================================
-FIRST_LAUNCH_RELEASE_NOTES = """
-<h3>Welcome to PTCGPB Companion!</h3>
-<p>Thanks for installing (or updating) PTCGPB Companion. Here are the
-highlights for this release:</p>
-<ul>
-  <li>Added Celestial Guardians Shiny Exeggute & Shiny Exeggutor to similar cards matching</li>
-</ul>
-<p>Best of luck!</p>
-"""
+FIRST_LAUNCH_RELEASE_NOTES = [
+    "Added Celestial Guardians Shiny Exeggcute & Shiny Exeggutor to similar cards matching"
+]
 
 
 class IntValidator(QValidator):
@@ -641,7 +636,23 @@ class FirstLaunchDialog(QDialog):
 
         notes_view = QTextEdit()
         notes_view.setReadOnly(True)
-        notes_view.setHtml(FIRST_LAUNCH_RELEASE_NOTES)
+
+        html = "<h3>" + self.tr("Welcome to PTCGPB Companion!") + "</h3>\n"
+        html += (
+            "<p>"
+            + self.tr(
+                "Thanks for installing (or updating) PTCGPB Companion."
+                " Here are the highlights for this release:"
+            )
+            + "</p>\n"
+        )
+        html += "<ul>\n"
+        for note in FIRST_LAUNCH_RELEASE_NOTES:
+            html += f"  <li>{self.tr(note)}</li>\n"
+        html += "</ul>\n"
+        html += "<p>" + self.tr("Best of luck!") + "</p>"
+
+        notes_view.setHtml(html)
         main_layout.addWidget(notes_view, 1)
 
         close_btn = QPushButton(self.tr("Close"))
