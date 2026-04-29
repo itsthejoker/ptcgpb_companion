@@ -1600,11 +1600,17 @@ class MainWindow(QMainWindow):
                 ]
 
             if search_text:
-                all_cards = [
+                card_names = [
                     obj
                     for obj in all_cards
                     if search_text in obj.get("card_name", "").lower()
                 ]
+                card_number = [
+                    obj
+                    for obj in all_cards
+                    if search_text in obj.get("card_code", "A_0").lower().split("_")[1]
+                ]
+                all_cards = card_names + card_number
 
             if self.tradeable_filter.isChecked():
                 all_cards = [obj for obj in all_cards if obj.get("tradeable")]

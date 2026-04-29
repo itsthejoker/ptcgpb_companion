@@ -40,7 +40,9 @@ class CardModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.DisplayRole:
             # Return text for display
             if col == 1:  # Card column
-                return card_data.get("card_name", "Unknown")
+                _, card_num = card_data.get("card_code", "A_0").lower().split("_")
+                card_name = card_data.get("card_name", "Unknown")
+                return f"{card_num} | {card_name}"
             elif col == 2:  # Set column
                 return card_data.get("set_name", "Unknown")
             elif col == 3:  # Rarity column
