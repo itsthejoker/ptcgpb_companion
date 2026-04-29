@@ -50,7 +50,8 @@ from typing import Callable
 #      update message.
 # =============================================================================
 FIRST_LAUNCH_RELEASE_NOTES = [
-    "Added Celestial Guardians Shiny Exeggcute & Shiny Exeggutor to similar cards matching"
+    "Added Celestial Guardians Shiny Exeggcute & Shiny Exeggutor to similar cards matching",
+    "Fixed bug where release notes weren't translated",
 ]
 
 
