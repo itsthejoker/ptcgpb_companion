@@ -25,6 +25,8 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QCheckBox,
+    QComboBox,
+    QSizePolicy,
 )
 from PyQt6.QtCore import QSize, QTimer
 from PyQt6.QtGui import QAction
@@ -60,7 +62,7 @@ from app.workers import (
     DashboardStatsWorker,
     get_max_thread_count,
 )
-from PyQt6.QtCore import QThreadPool, Qt, QUrl
+from PyQt6.QtCore import QThreadPool, Qt, QUrl, QEvent
 from PyQt6.QtGui import QDesktopServices
 from app.utils import (
     CheckableComboBox,
@@ -1101,11 +1103,24 @@ class MainWindow(QMainWindow):
         self.tradeable_filter = QCheckBox(self.tr("Tradeable only"))
         filter_layout.addWidget(self.tradeable_filter)
 
+        # Have filter
+        self.have_filter = QComboBox()
+        self.have_filter.addItems([self.tr("All"), self.tr("Own"), self.tr("Not Own")])
+        filter_layout.addWidget(QLabel(self.tr("Own:")))
+        filter_layout.addWidget(self.have_filter)
+
         # Search box
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText(self.tr("Search cards..."))
-        self.search_box.setMinimumWidth(200)
+        self.search_box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         filter_layout.addWidget(self.search_box)
+        filter_layout.addStretch()
+
+        # Mark own all button
+        self.mark_own_all_btn = QPushButton(self.tr("Mark unowned"))
+        self.mark_own_all_btn.setFixedWidth(self.mark_own_all_btn.sizeHint().width())
+        self.mark_own_all_btn.clicked.connect(self._toggle_own_all_visible)
+        filter_layout.addWidget(self.mark_own_all_btn)
 
         # Refresh button
         self.refresh_cards_btn = QPushButton(self.tr("Refresh"))
@@ -1167,7 +1182,6 @@ class MainWindow(QMainWindow):
                 if not getattr(self, "_initial_cards_load_attempted", False):
                     self._initial_cards_load_attempted = True
                     self._refresh_cards_tab()
-
     def _setup_processing_tab(self):
         """Set up the processing tab with task monitoring"""
         processing_widget = QWidget()
@@ -1332,6 +1346,8 @@ class MainWindow(QMainWindow):
             self.card_model = CardModel()
             self.cards_table.setModel(self.card_model)
             self.card_model.modelReset.connect(self._configure_card_table_columns)
+            self.card_model.modelReset.connect(self._update_own_all_btn_label)
+            self.card_model.dataChanged.connect(self._update_own_all_btn_label)
             self._configure_card_table_columns()
 
             # Connect filter signals
@@ -1340,9 +1356,12 @@ class MainWindow(QMainWindow):
 
             self.search_box.textChanged.connect(self._apply_filters)
             self.tradeable_filter.stateChanged.connect(self._apply_filters)
+            self.have_filter.currentIndexChanged.connect(self._apply_filters)
 
-            # Connect table click signal
+            # Connect table signals
             self.cards_table.clicked.connect(self._on_card_table_clicked)
+            self.cards_table.installEventFilter(self)
+            self.cards_table.viewport().installEventFilter(self)
 
         except Exception as e:
             print(f"Error setting up card model: {e}")
@@ -1359,18 +1378,101 @@ class MainWindow(QMainWindow):
         horizontal_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         horizontal_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
 
-        # Rarity and count columns use a stable sizing strategy
-        # Initially size to contents, then allow interactive resizing
+        # Rarity and count columns allow interactive resizing
         self.cards_table.setColumnWidth(3, 100)
-        self.cards_table.setColumnWidth(4, 60)
         horizontal_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        self.cards_table.setColumnWidth(4, 60)
         horizontal_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
+
+        # Own column fixed width for checkbox
+        horizontal_header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+        self.cards_table.setColumnWidth(5, 60)
 
         # Ensure the art column remains just wider than the icon size
         icon_width = self.cards_table.iconSize().width()
         minimum_width = icon_width + 8  # small padding for margins
         if horizontal_header.sectionSize(0) < minimum_width:
             self.cards_table.setColumnWidth(0, minimum_width)
+
+    def eventFilter(self, source, event):
+        if (
+            source is self.cards_table.viewport()
+            and event.type() == QEvent.Type.MouseButtonPress
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            index = self.cards_table.indexAt(event.pos())
+            if index.isValid() and index.column() == 5:
+                self.cards_table.setCurrentIndex(index)
+                col5 = self.card_model.index(index.row(), 5)
+                current = self.card_model.data(col5, Qt.ItemDataRole.CheckStateRole)
+                new_state = (
+                    Qt.CheckState.Unchecked
+                    if current == Qt.CheckState.Checked
+                    else Qt.CheckState.Checked
+                )
+                self.card_model.setData(col5, new_state, Qt.ItemDataRole.CheckStateRole)
+                return True  # consume event — prevents Qt auto-toggle and clicked signal
+        if (
+            source is self.cards_table
+            and event.type() == QEvent.Type.KeyPress
+            and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+        ):
+            indexes = self.cards_table.selectedIndexes()
+            if indexes:
+                row = indexes[0].row()
+                col5 = self.card_model.index(row, 5)
+                current = self.card_model.data(col5, Qt.ItemDataRole.CheckStateRole)
+                new_state = (
+                    Qt.CheckState.Unchecked
+                    if current == Qt.CheckState.Checked
+                    else Qt.CheckState.Checked
+                )
+                self.card_model.setData(col5, new_state, Qt.ItemDataRole.CheckStateRole)
+                return True
+        return super().eventFilter(source, event)
+
+    def _update_own_all_btn_label(self):
+        visible_data = getattr(self.card_model, "_data", [])
+        owned_count = sum(1 for item in visible_data if item.get("owned"))
+        majority_owned = owned_count > len(visible_data) / 2
+        label = self.tr("Mark unowned") if majority_owned else self.tr("Mark owned")
+        self.mark_own_all_btn.setText(label)
+
+    def _toggle_own_all_visible(self):
+        from app.db.models import Card, OwnedCard
+
+        visible_data = self.card_model._data
+        if not visible_data:
+            return
+
+        owned_count = sum(1 for item in visible_data if item.get("owned"))
+        should_mark = owned_count <= len(visible_data) / 2
+
+        if should_mark:
+            codes_to_change = [item["card_code"] for item in visible_data if not item.get("owned")]
+            cards_qs = Card.objects.filter(code__in=codes_to_change)
+            OwnedCard.objects.bulk_create(
+                [OwnedCard(card=card) for card in cards_qs],
+                ignore_conflicts=True,
+            )
+            new_owned_state = True
+        else:
+            codes_to_change = [item["card_code"] for item in visible_data if item.get("owned")]
+            OwnedCard.objects.filter(card__code__in=codes_to_change).delete()
+            new_owned_state = False
+
+        changed_codes = set(codes_to_change)
+        for item in self.card_model._data:
+            if item["card_code"] in changed_codes:
+                item["owned"] = new_owned_state
+        for item in getattr(self, "all_card_data", []):
+            if item["card_code"] in changed_codes:
+                item["owned"] = new_owned_state
+
+        model = self.card_model
+        top_left = model.index(0, 5)
+        bottom_right = model.index(model.rowCount() - 1, 5)
+        model.dataChanged.emit(top_left, bottom_right, [Qt.ItemDataRole.CheckStateRole])
 
     def _refresh_cards_tab(self):
         """Kick off async refresh of card data after letting the tab render"""
@@ -1612,12 +1714,21 @@ class MainWindow(QMainWindow):
             if self.tradeable_filter.isChecked():
                 all_cards = [obj for obj in all_cards if obj.get("tradeable")]
 
+            have_index = self.have_filter.currentIndex()
+            if have_index != 0:  # 0 = All
+                if have_index == 1:  # Own
+                    all_cards = [obj for obj in all_cards if obj.get("owned")]
+                else:  # Not Own
+                    all_cards = [obj for obj in all_cards if not obj.get("owned")]
+
             # Update model with filtered data
             self.card_model.update_data(all_cards)
+            owned_count = sum(1 for c in all_cards if c.get("owned"))
             self._update_status_message(
-                self.tr("Showing %1 of %2 unique cards")
+                self.tr("Showing %1 of %2 unique cards | Own: %3")
                 .replace("%1", str(len(all_cards)))
                 .replace("%2", str(all_cards_count))
+                .replace("%3", str(owned_count))
             )
 
         except Exception as e:
@@ -1641,8 +1752,8 @@ class MainWindow(QMainWindow):
                     resolved_path,
                     card_name + " (" + (card_data.get("set_name") or "Unknown") + ")",
                 )
-        else:
-            # Handle other columns
+        elif index.column() != 5:
+            # Handle other columns (col5/Own is handled by viewport event filter)
             card_data = self.card_model._data[index.row()]
             card_code = card_data.get("card_code")
             card_name = card_data.get("card_name", "Unknown")
