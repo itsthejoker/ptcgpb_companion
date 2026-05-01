@@ -1026,7 +1026,8 @@ class MainWindow(QMainWindow):
         filter_layout.addStretch()
 
         # Mark own all button
-        self.mark_own_all_btn = QPushButton(self.tr("Own All"))
+        self.mark_own_all_btn = QPushButton(self.tr("Mark unowned"))
+        self.mark_own_all_btn.setFixedWidth(self.mark_own_all_btn.sizeHint().width())
         self.mark_own_all_btn.clicked.connect(self._toggle_own_all_visible)
         filter_layout.addWidget(self.mark_own_all_btn)
 
@@ -1343,7 +1344,7 @@ class MainWindow(QMainWindow):
         visible_data = getattr(self.card_model, "_data", [])
         owned_count = sum(1 for item in visible_data if item.get("owned"))
         majority_owned = owned_count > len(visible_data) / 2
-        label = self.tr("Not Own All") if majority_owned else self.tr("Own All")
+        label = self.tr("Mark unowned") if majority_owned else self.tr("Mark owned")
         self.mark_own_all_btn.setText(label)
 
     def _toggle_own_all_visible(self):
