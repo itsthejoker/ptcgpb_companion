@@ -629,9 +629,9 @@ class FirstLaunchDialog(QDialog):
         # =============================================================================
         first_launch_release_notes = [
             self.tr(
-                "Added Paradox Drive!"
+                "Added Everyday Wonders"
             ),
-            self.tr("Removed third-party data dependency; new releases should be even faster!"),
+            self.tr("Added everything you need for the new Everyday Wonders set. Best of luck!"),
         ]
 
         main_layout = QVBoxLayout()

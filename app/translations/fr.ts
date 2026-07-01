@@ -554,13 +554,13 @@
         </message>
         <message>
             <location filename="../dialogs.py" line="631" />
-            <source>Added Paradox Drive!</source>
-            <translation>Ajout du Paradox Drive !</translation>
+            <source>Added Everyday Wonders</source>
+            <translation>Ajout de merveilles quotidiennes</translation>
         </message>
         <message>
             <location filename="../dialogs.py" line="634" />
-            <source>Removed third-party data dependency; new releases should be even faster!</source>
-            <translation>Suppression de la dépendance aux données tierces ; les nouvelles versions devraient être encore plus rapides !</translation>
+            <source>Added everything you need for the new Everyday Wonders set. Best of luck!</source>
+            <translation>Tout le nécessaire pour le nouveau coffret Merveilles du quotidien a été ajouté. Bonne chance !</translation>
         </message>
         <message>
             <location filename="../dialogs.py" line="639" />
@@ -586,6 +586,14 @@
             <location filename="../dialogs.py" line="664" />
             <source>Close</source>
             <translation>Fermer</translation>
+        </message>
+        <message>
+            <source>Added Paradox Drive!</source>
+            <translation type="vanished">Ajout du Paradox Drive !</translation>
+        </message>
+        <message>
+            <source>Removed third-party data dependency; new releases should be even faster!</source>
+            <translation type="vanished">Suppression de la dépendance aux données tierces ; les nouvelles versions devraient être encore plus rapides !</translation>
         </message>
         <message>
             <source>Added Celestial Guardians Shiny Exeggcute &amp; Shiny Exeggutor to similar cards matching</source>

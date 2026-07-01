@@ -554,13 +554,13 @@
         </message>
         <message>
             <location filename="../dialogs.py" line="631" />
-            <source>Added Paradox Drive!</source>
-            <translation>패러독스 드라이브가 추가되었습니다!</translation>
+            <source>Added Everyday Wonders</source>
+            <translation>일상의 놀라운 순간들을 추가했습니다</translation>
         </message>
         <message>
             <location filename="../dialogs.py" line="634" />
-            <source>Removed third-party data dependency; new releases should be even faster!</source>
-            <translation>타사 데이터 종속성을 제거했습니다. 이제 새 릴리스의 속도가 훨씬 빨라졌습니다!</translation>
+            <source>Added everything you need for the new Everyday Wonders set. Best of luck!</source>
+            <translation>새로운 &amp;#39;일상의 경이로움&amp;#39; 세트에 필요한 모든 것을 추가했습니다. 행운을 빌어요!</translation>
         </message>
         <message>
             <location filename="../dialogs.py" line="639" />
@@ -586,6 +586,14 @@
             <location filename="../dialogs.py" line="664" />
             <source>Close</source>
             <translation>닫다</translation>
+        </message>
+        <message>
+            <source>Added Paradox Drive!</source>
+            <translation type="vanished">패러독스 드라이브가 추가되었습니다!</translation>
+        </message>
+        <message>
+            <source>Removed third-party data dependency; new releases should be even faster!</source>
+            <translation type="vanished">타사 데이터 종속성을 제거했습니다. 이제 새 릴리스의 속도가 훨씬 빨라졌습니다!</translation>
         </message>
         <message>
             <source>Added Celestial Guardians Shiny Exeggcute &amp; Shiny Exeggutor to similar cards matching</source>
