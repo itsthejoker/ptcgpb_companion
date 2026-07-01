@@ -23,6 +23,7 @@ class CardSet(models.TextChoices):
     MEGA_SHINE = "B2b", "Mega Shine"
     PULSING_AURA = "B3", "Pulsing Aura"
     PARADOX_DRIVE = "B3a", "Paradox Drive"
+    EVERYDAY_WONDERS = "B3b", "Everyday Wonders"
     PROMO_A = "P-A", "Promo A"
     PROMO_B = "P-B", "Promo B"
 
