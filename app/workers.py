@@ -1461,10 +1461,11 @@ class CardDataLoadWorker(QRunnable):
             )
 
             # Lazy imports to avoid unnecessary main-thread initialization
-            from app.db.models import Card, CardSet, ScreenshotCard
+            from app.db.models import Card, CardSet, OwnedCard, ScreenshotCard
 
             rarity_map = Card.Rarity.rarity_map()
             set_names = CardSet.name_map()
+            owned_codes = set(OwnedCard.objects.values_list("card__code", flat=True))
 
             cutoff = (datetime.now() - timedelta(days=14)).strftime("%Y%m%d%H%M%S")
             tradeable_codes = set(
@@ -1511,6 +1512,7 @@ class CardDataLoadWorker(QRunnable):
                     "count": getattr(card, "total_count", 0),
                     "image_path": card.image_path,
                     "tradeable": card.code in tradeable_codes,
+                    "owned": card.code in owned_codes,
                 }
                 data.append(card_info)
 
@@ -1549,6 +1551,7 @@ class CardDataLoadWorker(QRunnable):
                         "count": 0,
                         "image_path": image_path,
                         "tradeable": False,
+                        "owned": code in owned_codes,
                     }
                 )
 

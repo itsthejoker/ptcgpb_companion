@@ -14,13 +14,19 @@ class CardModel(QAbstractTableModel):
     def __init__(self, data=None):
         super().__init__()
         self._data = data or []
-        self._headers = ["Art", "Card", "Set", "Rarity", "Count"]
+        self._headers = ["Art", "Card", "Set", "Rarity", "Count", "Own"]
 
     def rowCount(self, parent=QModelIndex()) -> int:
         return len(self._data)
 
     def columnCount(self, parent=QModelIndex()) -> int:
         return len(self._headers)
+
+    def flags(self, index):
+        base = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        if index.column() == 5:
+            return base | Qt.ItemFlag.ItemIsUserCheckable
+        return base
 
     def data(self, index, role=Qt.ItemDataRole):
         if not index.isValid():
@@ -36,6 +42,9 @@ class CardModel(QAbstractTableModel):
 
         if role == Qt.ItemDataRole.TextAlignmentRole and col == 0:
             return Qt.AlignmentFlag.AlignCenter
+
+        if role == Qt.ItemDataRole.CheckStateRole and col == 5:
+            return Qt.CheckState.Checked if card_data.get("owned") else Qt.CheckState.Unchecked
 
         if role == Qt.ItemDataRole.DisplayRole:
             # Return text for display
@@ -65,10 +74,44 @@ class CardModel(QAbstractTableModel):
             tooltip = f"{card_data.get('card_name', 'Unknown')}\n"
             tooltip += f"Set: {card_data.get('set_name', 'Unknown')}\n"
             tooltip += f"Rarity: {card_data.get('rarity', 'Unknown')}\n"
-            tooltip += f"Count: {card_data.get('count', 0)}"
+            tooltip += f"Count: {card_data.get('count', 0)}\n"
+            tooltip += f"Owned: {'Yes' if card_data.get('owned') else 'No'}"
             return tooltip
 
         return None
+
+    def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
+        if not index.isValid() or index.column() != 5:
+            return False
+        if role != Qt.ItemDataRole.CheckStateRole:
+            return False
+
+        from app.db.models import Card, OwnedCard
+
+        card_data = self._data[index.row()]
+        card_code = card_data.get("card_code")
+        card = Card.objects.filter(code=card_code).first()
+        if not card:
+            set_code = card_code.split("_")[0] if card_code and "_" in card_code else None
+            card, _ = Card.objects.get_or_create(
+                code=card_code,
+                defaults={
+                    "name": card_data.get("card_name"),
+                    "set": set_code,
+                    "rarity": card_data.get("rarity"),
+                },
+            )
+
+        checked = value == Qt.CheckState.Checked.value or value == Qt.CheckState.Checked
+        if checked:
+            OwnedCard.objects.get_or_create(card=card)
+            card_data["owned"] = True
+        else:
+            OwnedCard.objects.filter(card=card).delete()
+            card_data["owned"] = False
+
+        self.dataChanged.emit(index, index, [Qt.ItemDataRole.CheckStateRole])
+        return True
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole):
         if (
@@ -113,6 +156,8 @@ class CardModel(QAbstractTableModel):
                 return rarity.get(rarity_name, 999), rarity_name.lower()
             elif column == 4:  # Count
                 return item.get("count", 0)
+            elif column == 5:  # Own
+                return (0 if item.get("owned") else 1, (item.get("card_name") or "").lower())
             return ""
 
         self._data.sort(key=sort_key, reverse=not is_ascending)
